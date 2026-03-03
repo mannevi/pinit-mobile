@@ -15,6 +15,7 @@ function AdminDashboard({ user, onLogout }) {
   const [auditLog,     setAuditLog]     = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [proofUser, setProofUser] = useState(null);
   const navigate = useNavigate();
 
   const loadStats    = useCallback(async () => { try { const res = await adminAPI.getStats();      setStats(res);             } catch (err) { console.error(err); } }, []);
@@ -152,7 +153,7 @@ function AdminDashboard({ user, onLogout }) {
                   <td><span className={`status-dot ${u.is_active ? 'active' : 'inactive'}`}>{u.is_active ? 'Active' : 'Suspended'}</span></td>
                   <td>
                     <div className="action-buttons">
-                      <button onClick={() => setSelectedUser(u)} className="btn-action btn-view">Proofs</button>
+                      <button onClick={() => setProofUser(u)} className="btn-action btn-view">Proofs</button>
                       {u.is_active
                         ? <button onClick={() => handleSuspend(u.id)} className="btn-action btn-delete" disabled={u.role==='admin'}>Block</button>
                         : <button onClick={() => handleActivate(u.id)} className="btn-action btn-view">Activate</button>}
@@ -174,6 +175,36 @@ function AdminDashboard({ user, onLogout }) {
                   ].map(([label,value]) => (
                     <div key={label} className="detail-row"><span className="detail-label">{label}:</span><span className="detail-value">{value}</span></div>
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {proofUser && (
+            <div className="modal-overlay" onClick={() => setProofUser(null)}>
+              <div className="modal-content" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h2>Proofs for {proofUser.username}</h2>
+                  <button className="modal-close" onClick={() => setProofUser(null)}>×</button>
+                </div>
+                <div className="modal-body">
+                  {assets.filter(a => a.owner_email === proofUser.email || a.owner_name === proofUser.username).length > 0 ? (
+                    <table className="admin-table">
+                      <thead><tr><th>Asset ID</th><th>File Name</th><th>Size</th><th>Date</th></tr></thead>
+                      <tbody>
+                        {assets.filter(a => a.owner_email === proofUser.email || a.owner_name === proofUser.username).map((a, i) => (
+                          <tr key={i}>
+                            <td><code style={{fontSize:'0.75rem'}}>{(a.asset_id||'').slice(0,20)}...</code></td>
+                            <td>{a.file_name||'—'}</td>
+                            <td>{a.file_size||'—'}</td>
+                            <td>{formatDate(a.created_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="empty-state">No proofs found for this user</div>
+                  )}
                 </div>
               </div>
             </div>
