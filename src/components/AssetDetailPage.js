@@ -14,30 +14,7 @@ function AssetDetailPage({ user }) {
     loadAssetDetails();
   }, [assetId]);
 
-  const loadAssetDetails = () => {
-    const allAssets = JSON.parse(localStorage.getItem('analysisReports') || '[]');
-    const currentAsset = allAssets.find(a => a.assetId === assetId);
-    
-    if (!currentAsset) {
-      setLoading(false);
-      return;
-    }
-
-    setAsset(currentAsset);
-
-    // Find related versions
-    const rootParentId = currentAsset.parentAssetId || currentAsset.assetId;
-    
-    const versions = allAssets.filter(a => 
-      a.assetId === rootParentId || 
-      a.parentAssetId === rootParentId
-    ).sort((a, b) => 
-      new Date(a.timestamp || a.createdAt) - new Date(b.timestamp || b.createdAt)
-    );
-
-    setRelatedVersions(versions);
-    setLoading(false);
-  };
+  
 
   const detectPlatform = (assetData) => {
     const resolution = assetData.assetResolution;
