@@ -198,22 +198,53 @@ System: Image Crypto Analyzer
   };
 
   const handleCopyVerificationLink = () => {
-    // Create verification URL
-    const verificationUrl = `${window.location.origin}/admin/track/${assetId}`;
-    
-    // Copy to clipboard
-    navigator.clipboard.writeText(verificationUrl).then(() => {
-      alert('✅ Verification link copied to clipboard!\n\n' + verificationUrl);
-    }).catch(err => {
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = verificationUrl;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      alert('✅ Verification link copied to clipboard!\n\n' + verificationUrl);
-    });
+    if (!asset) return;
+
+    // Build the public report payload that PublicVerifyPage expects
+    const reportPayload = {
+      v: 1,
+      assetId:            asset.assetId,
+      isTampered:         asset.status === 'flagged' || false,
+      confidence:         asset.confidence || 95,
+      visualVerdict:      asset.status === 'verified' ? 'Verified Original' : 'Unknown / Unverified',
+      comparedAt:         new Date().toISOString(),
+      owner:              asset.userName || '—',
+      registered:         asset.timestamp || asset.createdAt,
+      origResolution:     asset.assetResolution || '—',
+      origHash:           asset.fileHash || null,
+      origFingerprint:    asset.visualFingerprint || null,
+      blockchainAnchor:   asset.blockchainAnchor || null,
+      certId:             asset.reportId || null,
+      originalCaptureTime: asset.timestamp || asset.createdAt || null,
+      modifiedFileTime:   null,
+      editingTool:        null,
+      pixelChangedPct:    null,
+      uploadedResolution: asset.assetResolution || '—',
+      uploadedSize:       asset.assetFileSize || '—',
+      pHashSim:           asset.confidence || 95,
+      changes:            asset.status === 'flagged'
+        ? [{ type: 'warning', category: 'Flagged', text: asset.flagReason || 'Flagged as suspicious' }]
+        : [],
+    };
+
+    try {
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(reportPayload))));
+      const verificationUrl = `${window.location.origin}/public/verify?data=${encoded}`;
+
+      navigator.clipboard.writeText(verificationUrl).then(() => {
+        alert('✅ Verification link copied to clipboard!\n\n' + verificationUrl);
+      }).catch(() => {
+        const textArea = document.createElement('textarea');
+        textArea.value = verificationUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        alert('✅ Verification link copied to clipboard!\n\n' + verificationUrl);
+      });
+    } catch (err) {
+      alert('Failed to generate verification link: ' + err.message);
+    }
   };
 
   const handleFlagSuspicious = () => {
