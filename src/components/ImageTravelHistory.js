@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, ChevronDown, ChevronUp } from 'lucide-react';
+import { adminAPI } from '../api/client';
 import './ImageTravelHistory.css';
 
 function ImageTravelHistory() {
@@ -12,56 +13,54 @@ function ImageTravelHistory() {
 
   useEffect(() => {
     loadTravelHistory();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetId]);
 
-  const loadTravelHistory = () => {
+  const loadTravelHistory = async () => {
     setLoading(true);
-    
-    const allAssets = JSON.parse(localStorage.getItem('analysisReports') || '[]');
-    const currentAsset = allAssets.find(a => a.assetId === assetId);
-    
-    if (!currentAsset) {
-      console.error('❌ Asset not found:', assetId);
-      setLoading(false);
-      return;
-    }
 
-    console.log('📸 Current Asset:', currentAsset);
+    try {
+      // Fetch all vault assets from backend
+      const res = await adminAPI.getAllVault();
+      const allAssets = res.assets || [];
 
-    // CRITICAL FIX: Find ONLY versions of THIS image (not all user images)
-    const rootParentId = currentAsset.parentAssetId || currentAsset.assetId;
-    
-    const relatedAssets = allAssets.filter(asset => {
-      // Include if it's the root parent
-      if (asset.assetId === rootParentId) return true;
-      
-      // Include if it's a direct child of the root
-      if (asset.parentAssetId === rootParentId) return true;
-      
-      // Include if it's the current asset
-      if (asset.assetId === assetId) return true;
-      
-      return false;
-    }).sort((a, b) => 
-      new Date(a.timestamp || a.createdAt) - new Date(b.timestamp || b.createdAt)
-    );
+      // Find current asset
+      const currentAsset = allAssets.find(a => a.asset_id === assetId);
 
-    console.log('🔍 Filtering Results:', {
-      currentAssetId: assetId,
-      rootParentId: rootParentId,
-      totalAssetsInSystem: allAssets.length,
-      relatedVersionsFound: relatedAssets.length,
-      versionIds: relatedAssets.map(a => a.assetId)
-    });
+      if (!currentAsset) {
+        console.error('❌ Asset not found:', assetId);
+        setLoading(false);
+        return;
+      }
 
-    // If no related assets found, show just this one
-    if (relatedAssets.length === 0) {
-      relatedAssets.push(currentAsset);
-    }
+      // Map backend fields to match component field names
+      const mapAsset = (a) => ({
+        assetId: a.asset_id,
+        parentAssetId: a.parent_asset_id || null,
+        assetName: a.file_name || 'Unknown',
+        assetResolution: a.resolution || 'Unknown',
+        assetFileSize: a.file_size || '0',
+        userName: a.owner_name || 'Unknown',
+        userEmail: a.owner_email || '',
+        createdAt: a.created_at,
+        timestamp: a.created_at,
+        confidence: a.confidence || 95,
+        status: a.status || 'verified',
+      });
 
-    const history = relatedAssets.map((asset, index) => {
-      const isOriginal = index === 0 || !asset.parentAssetId;
-      const prevAsset = index > 0 ? relatedAssets[index - 1] : null;
+      const mapped = mapAsset(currentAsset);
+
+      // Find related versions (same owner, similar asset)
+      const relatedAssets = allAssets
+        .filter(a => a.owner_email === currentAsset.owner_email)
+        .map(mapAsset)
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      const versions = relatedAssets.length > 0 ? relatedAssets : [mapped];
+
+      const history = versions.map((asset, index) => {
+        const isOriginal = index === 0 || !asset.parentAssetId;
+        const prevAsset = index > 0 ? versions[index - 1] : null;
       
       // IMPROVED PLATFORM DETECTION
       let platform = 'Original';
@@ -101,8 +100,8 @@ function ImageTravelHistory() {
         }
       }
 
-      const integrity = calculateIntegrity(relatedAssets[0], asset);
-      const changes = detectDeltaChanges(prevAsset || relatedAssets[0], asset, isOriginal);
+        const integrity = calculateIntegrity(versions[0], asset);
+        const changes = detectDeltaChanges(prevAsset || versions[0], asset, isOriginal);
       
       // Status badge based on integrity
       let statusBadge = 'preserved';
@@ -138,28 +137,31 @@ function ImageTravelHistory() {
       };
     });
 
-    // Find worst degradation
-    const worstEntry = history.reduce((worst, current) => 
-      current.integrity < worst.integrity ? current : worst
-    , history[0]);
+      // Find worst degradation
+      const worstEntry = history.reduce((worst, current) => 
+        current.integrity < worst.integrity ? current : worst
+      , history[0]);
 
-    const worstChanges = worstEntry.changes.filter(c => 
-      c.type === 'removed' || c.type === 'reduced'
-    );
+      const worstChanges = worstEntry.changes.filter(c => 
+        c.type === 'removed' || c.type === 'reduced'
+      );
 
-    setTravelHistory({
-      original: relatedAssets[0],
-      history: history,
-      totalAppearances: history.length,
-      platformsDetected: new Set(history.map(h => h.platform)).size - 1,
-      averageIntegrity: Math.round(history.reduce((sum, h) => sum + h.integrity, 0) / history.length),
-      worstDegradation: {
-        platform: worstEntry.platform,
-        changes: worstChanges.length > 0 ? worstChanges : [{ text: 'No major changes' }]
-      }
-    });
-    
-    setLoading(false);
+      setTravelHistory({
+        original: versions[0],
+        history: history,
+        totalAppearances: history.length,
+        platformsDetected: new Set(history.map(h => h.platform)).size - 1,
+        averageIntegrity: Math.round(history.reduce((sum, h) => sum + h.integrity, 0) / history.length),
+        worstDegradation: {
+          platform: worstEntry.platform,
+          changes: worstChanges.length > 0 ? worstChanges : [{ text: 'No major changes' }]
+        }
+      });
+    } catch (err) {
+      console.error('Error loading travel history:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const calculateIntegrity = (original, current) => {

@@ -614,8 +614,9 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
 
   // ── Pixel-level diff (requires stored thumbnail) ────────────────────────────
   let pixelAnalysis = null;
-  if (originalAsset.thumbnail) {
-    pixelAnalysis = await runPixelDiff(originalAsset.thumbnail, uploadedCanvas);
+  if (originalAsset.thumbnail || originalAsset.thumbnailUrl || originalAsset.cloudinary_url) {
+    const thumbSrc = originalAsset.thumbnail || originalAsset.thumbnailUrl || originalAsset.cloudinary_url;
+    pixelAnalysis = await runPixelDiff(thumbSrc, uploadedCanvas);
   }
 
   // ── pHash ───────────────────────────────────────────────────────────────────
@@ -1067,7 +1068,7 @@ useEffect(() => {
 
   const handleDownload = () => {
     if (!compareAsset || !comparisonResult) return;
-    downloadHTMLReport(compareAsset, comparisonResult, compareAsset.thumbnail, comparePreview);
+    downloadHTMLReport(compareAsset, comparisonResult, compareAsset.thumbnail || compareAsset.thumbnailUrl || compareAsset.cloudinary_url, comparePreview);
   };
 
   const formatDate = (ts) => {
@@ -1235,8 +1236,8 @@ useEffect(() => {
                     <span className="col-badge original">🔒 Original (Vault)</span>
                   </div>
                   <div className="image-frame">
-                    {compareAsset.thumbnail
-                      ? <img src={compareAsset.thumbnail} alt="Original" className="compare-img" />
+                    {compareAsset.thumbnail || compareAsset.thumbnailUrl || compareAsset.cloudinary_url || compareAsset.image_url
+                      ? <img src={compareAsset.thumbnail || compareAsset.thumbnailUrl || compareAsset.cloudinary_url || compareAsset.image_url} alt="Original" className="compare-img" />
                       : <div className="no-thumb"><Eye size={32} /><p>Thumbnail not stored</p></div>}
                   </div>
                   <div className="meta-chips">
