@@ -828,56 +828,50 @@ const embedUUIDAdvanced = (imageData, userId, gpsData, deviceInfo, ipAddress, ti
 
 // ============================================
 // LSB STEGANOGRAPHY - EXTRACT UUID (TILED)
-// Tries all tile offsets so works on any crop ≥ 200x200
+// Scans every possible bit offset within a tile — works on any crop ≥ 200x200
 // ============================================
 
 const extractUUIDAdvanced = (imageData) => {
   const data = imageData.data;
 
-  // Collect all available LSBs from the cropped image
+  // Collect all LSBs as integers (0 or 1)
   const bits = [];
   for (let i = 0; i < data.length; i += 4) {
-    for (let j = 0; j < 3; j++) {
-      bits.push((data[i + j] & 1).toString());
-    }
+    bits.push((data[i]     & 1));
+    bits.push((data[i + 1] & 1));
+    bits.push((data[i + 2] & 1));
   }
-
   const totalBits = bits.length;
 
-  // Helper: decode text from bits starting at offset, reading up to maxChars
-  const decodeFrom = (offset, maxChars) => {
+  // Decode text starting at bitOffset, reading maxChars characters
+  const decodeFrom = (bitOffset, maxChars) => {
     let text = '';
     for (let c = 0; c < maxChars; c++) {
-      const start = offset + c * 8;
-      if (start + 8 > totalBits) break;
-      const byte = bits.slice(start, start + 8).join('');
-      const charCode = parseInt(byte, 2);
-      if (charCode >= 32 && charCode <= 126) {
-        text += String.fromCharCode(charCode);
-      } else {
-        text += ' ';
-      }
+      const s = bitOffset + c * 8;
+      if (s + 8 > totalBits) break;
+      let val = 0;
+      for (let b = 0; b < 8; b++) val = (val << 1) | bits[s + b];
+      text += (val >= 32 && val <= 126) ? String.fromCharCode(val) : '\x00';
     }
     return text;
   };
 
-  // Helper: parse a valid IMGCRYPT message
+  // Parse IMGCRYPT message from decoded text
   const parseMessage = (text) => {
-    if (!(text.includes('IMGCRYPT3|') || text.includes('IMGCRYPT2|') || text.includes('IMGCRYPT|'))) return null;
-    if (!text.includes('|END')) return null;
-
-    const isV3 = text.includes('IMGCRYPT3|');
-    const isV2 = text.includes('IMGCRYPT2|');
-    const header = isV3 ? 'IMGCRYPT3|' : (isV2 ? 'IMGCRYPT2|' : 'IMGCRYPT|');
-    const startIdx = text.indexOf(header) + header.length;
-    const endIdx   = text.indexOf('|END');
-    if (endIdx <= startIdx) return null;
-
-    const parts = text.substring(startIdx, endIdx).split('|');
-    if (parts.length < 2) return null;
-
+    const v3i = text.indexOf('IMGCRYPT3|');
+    const v2i = text.indexOf('IMGCRYPT2|');
+    const v1i = text.indexOf('IMGCRYPT|');
+    const isV3 = v3i >= 0;
+    const isV2 = !isV3 && v2i >= 0;
+    const hdr  = isV3 ? 'IMGCRYPT3|' : isV2 ? 'IMGCRYPT2|' : v1i >= 0 ? 'IMGCRYPT|' : null;
+    if (!hdr) return null;
+    const si = text.indexOf(hdr) + hdr.length;
+    const ei = text.indexOf('|END', si);
+    if (ei <= si) return null;
+    const parts = text.substring(si, ei).split('|');
+    if (parts.length < 4 || !parts[0] || parts[0].length < 2) return null;
     return {
-      userId:             parts[0] || null,
+      userId:             parts[0],
       gps:                parts[1] || 'NOGPS',
       timestamp:          parts[2] || null,
       deviceId:           parts[3] || null,
@@ -887,72 +881,47 @@ const extractUUIDAdvanced = (imageData) => {
       ipSource:           parts[7] || null,
       gpsSource:          parts[8] || null,
       originalResolution: isV3 ? (parts[9] || null) : null,
-      isV3, isV2
     };
   };
 
-  // Step 1: Try sequential read (non-tiled / standard position)
-  const maxChars = 600;
-  for (let startBit = 0; startBit < Math.min(totalBits - maxChars * 8, 8); startBit++) {
-    const text = decodeFrom(startBit, maxChars);
-    const parsed = parseMessage(text);
-    if (parsed) {
-      return buildResult(parsed, 'sequential');
-    }
-  }
+  // UUID message is ~100-400 chars → 800-3200 bits per tile
+  // When image is cropped, the crop may start mid-tile at any bit offset.
+  // We scan every 8-bit offset from 0 to maxTileSize to find the header.
+  const maxScanBits = Math.min(totalBits - 800, 3200);
+  const readChars   = Math.min(500, Math.floor(totalBits / 8));
 
-  // Step 2: Tiled search — estimate tile length by scanning for IMGCRYPT3 header
-  // UUID message is typically 150-400 chars = 1200-3200 bits
-  // Try tile sizes in that range
-  for (let tileLen = 1200; tileLen <= 3200; tileLen += 8) {
-    if (tileLen > totalBits) break;
-
-    // Read one tile worth of bits starting at offset 0
-    const text = decodeFrom(0, Math.floor(tileLen / 8));
+  for (let offset = 0; offset <= maxScanBits; offset += 8) {
+    const text = decodeFrom(offset, readChars);
+    if (!text.includes('IMGCRYPT')) continue;
     const parsed = parseMessage(text);
-    if (parsed) {
-      return buildResult(parsed, 'tiled');
-    }
-  }
-
-  // Step 3: Sliding window search as fallback
-  for (let startBit = 0; startBit < Math.min(totalBits - 1200, 3200); startBit += 8) {
-    const text = decodeFrom(startBit, 500);
-    const parsed = parseMessage(text);
-    if (parsed) {
-      return buildResult(parsed, 'sliding');
-    }
+    if (parsed) return buildResult(parsed);
   }
 
   return { found: false, userId: '' };
 };
 
-const buildResult = (match, method) => {
+const buildResult = (match) => {
   let gpsResult = { available: false, coordinates: null, mapsUrl: null, source: match.gpsSource || 'Unknown' };
   if (match.gps && match.gps !== 'NOGPS') {
-    const gpsParts = match.gps.split(',');
-    if (gpsParts.length === 2) {
-      const lat = parseFloat(gpsParts[0]);
-      const lng = parseFloat(gpsParts[1]);
-      gpsResult = {
-        available: true, latitude: lat, longitude: lng,
-        coordinates: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
-        mapsUrl: `https://www.google.com/maps?q=${lat},${lng}`,
-        source: match.gpsSource || 'Unknown'
-      };
+    const parts = match.gps.split(',');
+    if (parts.length === 2) {
+      const lat = parseFloat(parts[0]);
+      const lng = parseFloat(parts[1]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        gpsResult = {
+          available: true, latitude: lat, longitude: lng,
+          coordinates: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+          mapsUrl: `https://www.google.com/maps?q=${lat},${lng}`,
+          source: match.gpsSource || 'Unknown'
+        };
+      }
     }
   }
-
-  let timestampResult = null;
-  if (match.timestamp && !isNaN(match.timestamp)) {
-    timestampResult = parseInt(match.timestamp);
-  }
-
   return {
-    found: true,
+    found:              true,
     userId:             match.userId,
     gps:                gpsResult,
-    timestamp:          timestampResult,
+    timestamp:          match.timestamp && !isNaN(match.timestamp) ? parseInt(match.timestamp) : null,
     deviceId:           match.deviceId,
     deviceName:         match.deviceName,
     ipAddress:          match.ipAddress,
@@ -960,8 +929,7 @@ const buildResult = (match, method) => {
     ipSource:           match.ipSource     || 'Unknown',
     gpsSource:          match.gpsSource    || 'Unknown',
     originalResolution: match.originalResolution,
-    confidence:         method === 'sequential' ? 'Very High' : 'High',
-    recoveryMethod:     method
+    confidence:         'High',
   };
 };
 
