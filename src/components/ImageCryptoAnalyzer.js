@@ -1993,17 +1993,22 @@ phash_sim:  enhancedReport.pHashSim ? Math.round(enhancedReport.pHashSim) : null
 
       // [NEW] Detect if image was cropped using embedded original resolution
       let cropInfo = null;
-      const currentResolution = canvas.width + ' x ' + canvas.height;
+      const currentResolution = canvas.width + 'x' + canvas.height;
 
       if (uuidResult.found && uuidResult.originalResolution) {
         const originalRes = uuidResult.originalResolution;
-        if (originalRes !== currentResolution) {
-          // Image was cropped!
-          const originalParts = originalRes.split('x');
-          const originalWidth = parseInt(originalParts[0]);
+
+        // Normalize both resolutions (remove spaces for accurate comparison)
+        const normalizedOriginal = originalRes.replace(/\s/g, '').toLowerCase();
+        const normalizedCurrent  = currentResolution.replace(/\s/g, '').toLowerCase();
+
+        if (normalizedOriginal !== normalizedCurrent) {
+          // Image was ACTUALLY cropped!
+          const originalParts  = originalRes.split(/\s*x\s*/i);
+          const originalWidth  = parseInt(originalParts[0]);
           const originalHeight = parseInt(originalParts[1]);
           const originalPixels = originalWidth * originalHeight;
-          const currentPixels = canvas.width * canvas.height;
+          const currentPixels  = canvas.width * canvas.height;
           const remainingPercentage = ((currentPixels / originalPixels) * 100).toFixed(2);
 
           cropInfo = {
@@ -2014,6 +2019,9 @@ phash_sim:  enhancedReport.pHashSim ? Math.round(enhancedReport.pHashSim) : null
             currentPixels: currentPixels.toLocaleString(),
             remainingPercentage: remainingPercentage + '%'
           };
+        } else {
+          // Not cropped - resolutions match
+          cropInfo = null;
         }
       }
 
