@@ -18,18 +18,35 @@ function PublicCertificateView() {
   try {
     console.log('Loading certificate:', certificateId);
     
-    // Load from shared certificates (public storage)
-    const sharedCerts = JSON.parse(localStorage.getItem('sharedCertificates') || '[]');
-    console.log('Shared certificates:', sharedCerts);
+    // First, try to get data from URL parameter (works on any device!)
+    const urlParams = new URLSearchParams(window.location.search);
+    const encodedData = urlParams.get('data');
     
-    // Try multiple ID formats
+    if (encodedData) {
+      // Decode certificate data from URL
+      try {
+        const certData = decodeURIComponent(escape(atob(encodedData)));
+        const cert = JSON.parse(certData);
+        console.log('Certificate loaded from URL:', cert);
+        setCertificate(cert);
+        setLoading(false);
+        return;
+      } catch (decodeErr) {
+        console.error('Failed to decode certificate from URL:', decodeErr);
+      }
+    }
+    
+    // Fallback: try localStorage (for backward compatibility)
+    const sharedCerts = JSON.parse(localStorage.getItem('sharedCertificates') || '[]');
+    console.log('Shared certificates in localStorage:', sharedCerts);
+    
     const cert = sharedCerts.find(c => 
       c.certificateId === certificateId || 
       c.certificate_id === certificateId ||
       c.id === certificateId
     );
     
-    console.log('Found certificate:', cert);
+    console.log('Found certificate in localStorage:', cert);
 
     if (!cert) {
       setError('Certificate not found or link has expired');
