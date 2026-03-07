@@ -11,6 +11,7 @@ import AssetTrackingPage from './components/AssetTrackingPage';
 import VerifyPage from './components/VerifyPage';
 import ImageTravelHistory from './components/ImageTravelHistory';
 import PublicVerifyPage from './components/PublicVerifyPage';
+import PublicCertificateView from './components/PublicCertificateView';
 import { getUser, getToken, removeToken, saveToken, saveUser } from './utils/auth';
 
 function App() {
@@ -78,6 +79,8 @@ function App() {
           }
         />
         <Route path="/public/verify" element={<PublicVerifyPage />} />
+		        <Route path="/certificate/:certificateId" element={<PublicCertificateView />} />  {/* ← ADD THIS */}
+
 
         {/* User routes */}
         <Route
