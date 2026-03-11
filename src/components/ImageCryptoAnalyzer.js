@@ -1840,7 +1840,7 @@ const ImageCryptoAnalyzer = ({ user, onLogout }) => {
         reader.onloadend = () => {
           const thumbnail = reader.result;
           
-          // ACTUALLY save to backend vault API
+// ACTUALLY save to backend vault API
           import('../api/client').then(({ vaultAPI }) => {
             vaultAPI.save({
               asset_id:           assetId,
@@ -1858,10 +1858,14 @@ const ImageCryptoAnalyzer = ({ user, onLogout }) => {
               capture_timestamp:  captureTimeData.timestamp || new Date().toISOString(),
             }).then(() => {
               console.log('✅ ENCRYPTED IMAGE saved to vault:', assetId);
-            }).catch(err => console.error('❌ Vault save failed:', err));
+            }).catch(err => {
+              console.error('❌ Vault save failed:', err);
+              console.error('❌ Full error:', err.message, err.response);
+            });
+          }).catch(err => {
+            console.error('❌ API import failed:', err);
+            console.error('❌ Cannot load vaultAPI module');
           });
-        };
-        reader.readAsDataURL(blob);
 
         // ── [UPDATED] Update forensicsStats via new helper ──────────────────
         updateForensicsStats('encrypted', {
