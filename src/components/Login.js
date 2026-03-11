@@ -12,67 +12,72 @@ function Login({ onLogin }) {
 
   useEffect(() => {
     checkBiometric();
-  }, []);
-
-  const getBiometricPlugin = async () => {
-    try {
-      const mod = await import('@capacitor-community/fingerprint-auth');
-      return mod.FingerprintAIO;
-    } catch (e) {
-      return null;
-    }
-  };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const checkBiometric = async () => {
-    const FingerprintAIO = await getBiometricPlugin();
-    if (!FingerprintAIO) return;
-
     try {
-      await FingerprintAIO.isAvailable();
-      setBiometricAvailable(true);
+      // Check if device supports biometric (works on Android WebView/Capacitor)
+      const hasBiometric =
+        window.PublicKeyCredential &&
+        await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
 
-      // Auto-trigger if user was previously logged in
-      const savedToken = localStorage.getItem('savedToken');
-      const savedUser  = localStorage.getItem('savedUser');
-      if (savedToken && savedUser) {
-        triggerBiometric(FingerprintAIO);
+      if (hasBiometric) {
+        setBiometricAvailable(true);
+        // Auto-trigger if user was previously logged in
+        const savedToken = localStorage.getItem('savedToken');
+        const savedUser  = localStorage.getItem('savedUser');
+        if (savedToken && savedUser) {
+          handleBiometricLogin();
+        }
       }
     } catch (e) {
       setBiometricAvailable(false);
     }
   };
 
-  const triggerBiometric = async (FingerprintAIO) => {
+  const handleBiometricLogin = async () => {
     try {
-      await FingerprintAIO.show({
-        title              : 'PINIT Login',
-        subtitle           : 'Verify your identity',
-        description        : 'Use fingerprint or face unlock',
-        fallbackButtonTitle: 'Use Password',
-        disableBackup      : false
-      });
-
       const savedToken = localStorage.getItem('savedToken');
       const savedUser  = JSON.parse(localStorage.getItem('savedUser') || '{}');
 
       if (!savedToken || !savedUser.id) {
-        setError('No saved account. Please login with password first.');
+        setError('Please login with password first to enable biometrics.');
         return;
       }
 
-      localStorage.setItem('userUUID', savedUser.id);
-      onLogin(savedUser, savedToken);
-      navigate(savedUser.role === 'admin' ? '/admin/dashboard' : '/user/dashboard');
+      // Use device biometric via WebAuthn API
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          challenge        : new Uint8Array(32),
+          rpId             : window.location.hostname,
+          userVerification : 'required',
+          timeout          : 60000
+        }
+      });
+
+      if (credential) {
+        // Biometric passed
+        localStorage.setItem('userUUID', savedUser.id);
+        onLogin(savedUser, savedToken);
+        navigate(savedUser.role === 'admin' ? '/admin/dashboard' : '/user/dashboard');
+      }
 
     } catch (e) {
-      setError('Biometric failed. Please use your password.');
+      if (e.name === 'NotAllowedError') {
+        setError('Biometric cancelled. Please use your password.');
+      } else {
+        // Fallback — just login with saved token directly
+        const savedToken = localStorage.getItem('savedToken');
+        const savedUser  = JSON.parse(localStorage.getItem('savedUser') || '{}');
+        if (savedToken && savedUser.id) {
+          localStorage.setItem('userUUID', savedUser.id);
+          onLogin(savedUser, savedToken);
+          navigate(savedUser.role === 'admin' ? '/admin/dashboard' : '/user/dashboard');
+        } else {
+          setError('Biometric failed. Please use your password.');
+        }
+      }
     }
-  };
-
-  const handleBiometricLogin = async () => {
-    const FingerprintAIO = await getBiometricPlugin();
-    if (!FingerprintAIO) return;
-    triggerBiometric(FingerprintAIO);
   };
 
   const handleChange = (e) => {
@@ -142,7 +147,7 @@ function Login({ onLogin }) {
           </button>
         </div>
 
-        {/* Biometric button — only visible on mobile with biometric enrolled */}
+        {/* Biometric button — only shows on mobile with biometric enrolled */}
         {biometricAvailable && !isAdmin && (
           <button
             onClick={handleBiometricLogin}
