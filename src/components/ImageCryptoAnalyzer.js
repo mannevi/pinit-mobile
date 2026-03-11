@@ -1835,23 +1835,39 @@ const ImageCryptoAnalyzer = ({ user, onLogout }) => {
         const blockchainAnchor = generateBlockchainAnchor(sha256Hash, now.getTime());
         const certId = generateAuthorshipCertificateId(userId, deviceInfo.deviceId);
 
-        // ── Save to vaultImages (UserDashboard Vault tab) ───────────────────
+        // ── Save to vault database with correct Asset ID ────────────────────
         const reader = new FileReader();
         reader.onloadend = () => {
           const thumbnail = reader.result;
           
-          // ACTUALLY SAVE TO BACKEND VAULT
-          saveToVault(
-            preview,              // imageData
-            filename,             // fileName
-            userId,               // userId
-            `${(blob.size / 1024).toFixed(2)} KB`,  // fileSize
-            blob                  // imageBlob
-          );
-
-          console.log('✅ Image saved to vault database');
+          // Save to backend with CORRECT Asset ID
+          import('../api/client').then(({ vaultAPI }) => {
+            vaultAPI.save({
+              asset_id:           assetId,  // ← Use the hash-based Asset ID!
+              owner_name:         userId,
+              file_name:          filename,
+              file_size:          `${(blob.size / 1024).toFixed(2)} KB`,
+              thumbnail_base64:   thumbnail,
+              device_id:          deviceInfo.deviceId,
+              certificate_id:     certId,
+              owner_email:        user?.email || null,
+              file_hash:          sha256Hash,
+              visual_fingerprint: perceptualHash,
+              blockchain_anchor:  blockchainAnchor,
+              resolution:         `${canvas.width}x${canvas.height}`,
+              capture_timestamp:  captureTimeData.timestamp,
+            }).then(() => {
+              console.log('✅ Saved to vault with Asset ID:', assetId);
+            }).catch(err => console.error('❌ Vault save failed:', err));
+          }).catch(err => console.error('❌ API import failed:', err));
         };
         reader.readAsDataURL(blob);
+
+        // ── Update forensicsStats via helper ────────────────────────────────
+        updateForensicsStats('encrypted', {
+          userId: userId,
+          fileName: filename
+        });
 
           try {
             // Backend API save is handled by saveToVault above
