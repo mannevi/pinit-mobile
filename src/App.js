@@ -25,9 +25,33 @@ function App() {
     if (token && user) {
       setCurrentUser(user);
       setUserRole(user.role);
+      // Restore UUID on app startup
+      localStorage.setItem('userUUID', user.id);
+      // Refresh UUID from backend silently
+      fetch('https://pinit-backend.onrender.com/auth/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(r => r.json())
+        .then(data => { if (data.id) localStorage.setItem('userUUID', data.id); })
+        .catch(() => {});
     }
     setLoading(false);
   }, []);
+
+  // Fetch UUID from backend and store locally
+  const refreshUUID = async (token) => {
+    try {
+      const res = await fetch('https://pinit-backend.onrender.com/auth/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.id) {
+        localStorage.setItem('userUUID', data.id);
+      }
+    } catch (e) {
+      // Silently fail — UUID already saved from login response
+    }
+  };
 
   const handleLogin = (user, token) => {
     saveToken(token);
@@ -35,6 +59,10 @@ function App() {
     setCurrentUser(user);
     setUserRole(user.role);
     localStorage.setItem(`lastLogin_${user.email}`, new Date().toISOString());
+    // Store UUID immediately from login response
+    localStorage.setItem('userUUID', user.id);
+    // Also refresh from backend to ensure latest UUID
+    refreshUUID(token);
   };
 
   const handleLogout = () => {
