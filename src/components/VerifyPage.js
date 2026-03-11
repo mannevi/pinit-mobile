@@ -298,6 +298,7 @@ function VerifyPage() {
       const uuidResult = extractUUIDWithRotation(canvas);
 
       // Fetch assets from backend API
+      // Fetch assets from backend API
       let storedAssets = [];
       try {
         const res = await vaultAPI.list();
@@ -317,6 +318,9 @@ function VerifyPage() {
           blockchainAnchor: asset.blockchain_anchor || asset.blockchainAnchor || null,
           gpsLocation:    asset.gps_location  || asset.gpsLocation     || null,
         }));
+        
+        console.log('🔵 Total vault images:', storedAssets.length);
+        console.log('🔵 First vault image:', storedAssets[0]);
       } catch (err) {
         console.warn('Could not fetch vault assets:', err.message);
       }
@@ -326,12 +330,31 @@ function VerifyPage() {
       let confidence = 0;
       let changes = [];
       
+      // Generate Asset ID from uploaded image
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const uploadedAssetId = 'AST-' + generateImageHash(imageData);
+      
+      console.log('🔵 Uploaded Asset ID:', uploadedAssetId);
+      console.log('🔵 UUID Result:', uuidResult);
+      
       if (uuidResult.found) {
-        matchedAsset = storedAssets.find(asset => 
-          (asset.uniqueUserId && asset.uniqueUserId === uuidResult.userId) ||
-          (asset.user_id      && asset.user_id      === uuidResult.userId) ||
-          (asset.deviceId     && asset.deviceId     === uuidResult.deviceId)
-        );
+        // Try matching by Asset ID first (most reliable)
+        matchedAsset = storedAssets.find(asset => {
+          console.log('🔍 Comparing Asset IDs:', asset.assetId, 'vs', uploadedAssetId);
+          return asset.assetId === uploadedAssetId;
+        });
+        
+        // Fallback: match by userId
+        if (!matchedAsset) {
+          console.log('🔍 No Asset ID match, trying userId match...');
+          matchedAsset = storedAssets.find(asset => 
+            (asset.uniqueUserId && asset.uniqueUserId === uuidResult.userId) ||
+            (asset.user_id      && asset.user_id      === uuidResult.userId) ||
+            (asset.deviceId     && asset.deviceId     === uuidResult.deviceId)
+          );
+        }
+        
+        console.log('🔵 Match found:', matchedAsset);
         
         if (matchedAsset) {
           matchFound = true;
