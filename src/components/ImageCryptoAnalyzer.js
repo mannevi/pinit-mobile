@@ -1839,31 +1839,19 @@ const ImageCryptoAnalyzer = ({ user, onLogout }) => {
         const reader = new FileReader();
         reader.onloadend = () => {
           const thumbnail = reader.result;
-          const vaultEntry = {
-            id: `${assetId}_${now.getTime()}`,
-            assetId: assetId,
-            fileName: selectedFile ? selectedFile.name : filename,
-            fileSize: blob.size,
-            dateEncrypted: now.toISOString(),
-            timestamp: now.getTime(),
-            userId: userId,
-            status: 'verified',
-            thumbnail: thumbnail,
-            // ── vault security fields ──────────────────────────────────
-            fileHash: sha256Hash,
-            visualFingerprint: perceptualHash,
-            blockchainAnchor: blockchainAnchor,
-            certificateId: certId,
-            resolution: `${canvas.width} x ${canvas.height}`,
-            captureTimestamp: captureTimeData.timestamp,
-            captureSource: captureSource,
-            deviceId: deviceInfo.deviceId,
-            deviceName: deviceInfo.deviceName,
-            gpsLocation: gpsData,
-            ipAddress: ipInfo.ip,
-            ownerName: user?.name || userId,
-            ownerEmail: user?.email || null,
-          };
+          
+          // ACTUALLY SAVE TO BACKEND VAULT
+          saveToVault(
+            preview,              // imageData
+            filename,             // fileName
+            userId,               // userId
+            `${(blob.size / 1024).toFixed(2)} KB`,  // fileSize
+            blob                  // imageBlob
+          );
+
+          console.log('✅ Image saved to vault database');
+        };
+        reader.readAsDataURL(blob);
 
           try {
             // Backend API save is handled by saveToVault above
