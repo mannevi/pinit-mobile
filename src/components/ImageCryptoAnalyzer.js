@@ -2477,17 +2477,10 @@ phash_sim:  enhancedReport.pHashSim ? Math.round(enhancedReport.pHashSim) : null
             <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-4">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                    ✓ Authorship Proof Certificate
-                  </h2>
+                  <h2 className="text-2xl font-bold text-white">✓ Authorship Proof Certificate</h2>
                   <p className="text-green-100 text-sm mt-1">Original creation verified</p>
                 </div>
-                <button
-                  onClick={() => setShowAuthorshipModal(false)}
-                  className="text-white hover:text-gray-200 text-3xl font-bold"
-                >
-                  ×
-                </button>
+                <button onClick={() => setShowAuthorshipModal(false)} className="text-white hover:text-gray-200 text-3xl font-bold">×</button>
               </div>
             </div>
 
@@ -2507,69 +2500,51 @@ phash_sim:  enhancedReport.pHashSim ? Math.round(enhancedReport.pHashSim) : null
               {/* Authorship Details */}
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  {/* Capture Timestamp */}
                   <div className="bg-blue-50 p-4 rounded-lg">
                     <p className="text-xs text-blue-700 uppercase mb-1">📅 Captured At</p>
                     <p className="font-semibold text-blue-900">{authorshipProof.captureDate}</p>
                   </div>
 
-                  {/* Captured By */}
                   <div className="bg-purple-50 p-4 rounded-lg">
                     <p className="text-xs text-purple-700 uppercase mb-1">👤 Captured By</p>
                     <p className="font-semibold text-purple-900">{authorshipProof.capturedBy}</p>
                   </div>
 
-                  {/* Device */}
                   <div className="bg-indigo-50 p-4 rounded-lg">
                     <p className="text-xs text-indigo-700 uppercase mb-1">📱 Device</p>
                     <p className="font-semibold text-indigo-900 text-sm">{authorshipProof.deviceName}</p>
                     <p className="text-xs text-indigo-600 mt-1">ID: {authorshipProof.deviceId}</p>
                   </div>
 
-                  {/* Resolution */}
                   <div className="bg-amber-50 p-4 rounded-lg">
                     <p className="text-xs text-amber-700 uppercase mb-1">📐 Resolution</p>
                     <p className="font-semibold text-amber-900">{authorshipProof.resolution}</p>
                     <p className="text-xs text-amber-600 mt-1">{authorshipProof.totalPixels} pixels</p>
                   </div>
 
-                  {/* GPS Location */}
                   <div className="bg-green-50 p-4 rounded-lg col-span-2">
                     <p className="text-xs text-green-700 uppercase mb-1">📍 GPS Location</p>
                     {authorshipProof.gpsLocation && authorshipProof.gpsLocation.available ? (
-                      <>
+                      <div>
                         <p className="font-semibold text-green-900">{authorshipProof.gpsLocation.coordinates}</p>
-                        <a href={authorshipProof.gpsLocation.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:text-green-800 underline mt-1 inline-block">
-                          📍 View on Google Maps
-                        </a>
-                      </>
-                    ) : (
-                      <p className="text-gray-500 text-sm">Location not available</p>
-                    )}
-                  </div>
-                    ) : (
-                      <p className="text-gray-500 text-sm">Location not available</p>
-                    )}
-                  </div>
+                        <a href={authorshipProof.gpsLocation.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:text-green-800 underline">📍 View on Maps</a>
+                      </div>
                     ) : (
                       <p className="text-gray-500 text-sm">Location not available</p>
                     )}
                   </div>
 
-                  {/* IP Address */}
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <p className="text-xs text-gray-700 uppercase mb-1">🌐 IP Address</p>
                     <p className="font-semibold text-gray-900">{authorshipProof.ipAddress}</p>
                   </div>
 
-                  {/* Verification Status */}
                   <div className="bg-green-50 p-4 rounded-lg">
                     <p className="text-xs text-green-700 uppercase mb-1">✓ Verification</p>
                     <p className="font-semibold text-green-900">Original - {authorshipProof.confidence}%</p>
                   </div>
                 </div>
 
-                {/* Verification Notice */}
                 <div className="bg-gradient-to-r from-green-100 to-emerald-100 border-l-4 border-green-600 p-4 rounded">
                   <p className="text-sm text-green-900">
                     <strong>✓ Authorship Verified:</strong> This image was captured directly using your device's camera. 
@@ -2583,7 +2558,6 @@ phash_sim:  enhancedReport.pHashSim ? Math.round(enhancedReport.pHashSim) : null
                 <button
                   onClick={() => {
                     setShowAuthorshipModal(false);
-                    // Auto-fill User ID
                     if (authorshipProof.capturedBy) {
                       setUserId(authorshipProof.capturedBy.split('@')[0] || authorshipProof.capturedBy);
                     }
@@ -2594,7 +2568,6 @@ phash_sim:  enhancedReport.pHashSim ? Math.round(enhancedReport.pHashSim) : null
                 </button>
                 <button
                   onClick={() => {
-                    // Download authorship proof certificate
                     const proofText = `
 ═══════════════════════════════════════════════════════════
         AUTHORSHIP PROOF CERTIFICATE
@@ -2628,7 +2601,7 @@ Total Pixels:   ${authorshipProof.totalPixels}
 ───────────────────────────────────────────────────────────
 LOCATION DATA
 ───────────────────────────────────────────────────────────
-GPS Location:   ${authorshipProof.gpsLocation?.available 
+GPS Location:   ${authorshipProof.gpsLocation && authorshipProof.gpsLocation.available 
   ? authorshipProof.gpsLocation.coordinates + '\nMaps: ' + authorshipProof.gpsLocation.mapsUrl
   : 'Not Available'}
 
