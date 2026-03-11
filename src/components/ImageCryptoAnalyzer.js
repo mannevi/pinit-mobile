@@ -2534,9 +2534,10 @@ phash_sim:  enhancedReport.pHashSim ? Math.round(enhancedReport.pHashSim) : null
                   </div>
 
                   {/* GPS Location */}
+                  {/* GPS Location */}
                   <div className="bg-green-50 p-4 rounded-lg col-span-2">
                     <p className="text-xs text-green-700 uppercase mb-1">📍 GPS Location</p>
-                    {authorshipProof.gpsLocation?.available ? (
+                    {authorshipProof.gpsLocation && authorshipProof.gpsLocation.available ? (
                       <div>
                         <p className="font-semibold text-green-900">{authorshipProof.gpsLocation.coordinates}</p>
                         
@@ -2548,6 +2549,10 @@ phash_sim:  enhancedReport.pHashSim ? Math.round(enhancedReport.pHashSim) : null
                           📍 View on Google Maps
                         </a>
                       </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">Location not available</p>
+                    )}
+                  </div>
                     ) : (
                       <p className="text-gray-500 text-sm">Location not available</p>
                     )}
