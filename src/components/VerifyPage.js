@@ -27,9 +27,12 @@ function VerifyPage() {
   };
 
   const STEGO_TILE     = 12;
-  const UUID_FIELD_LEN = 32;
+  const UUID_FIELD_LEN = 36; // support full UUID with hyphens
   const PAYLOAD_BYTES  = 1 + UUID_FIELD_LEN + 2;
   const PAYLOAD_BITS   = PAYLOAD_BYTES * 8;
+
+  // Normalize UUID for comparison — strip hyphens, lowercase
+  const normalizeUUID = (id) => (id || '').replace(/-/g, '').toLowerCase();
 
   const crc16js = (bytes) => {
     let crc = 0xFFFF;
@@ -204,13 +207,14 @@ function VerifyPage() {
           const response = await adminAPI.getAllVault();
           const allAssets = response?.data || response || [];
 
+          const extractedNorm = normalizeUUID(uuidResult.userId);
           const backendMatch = allAssets.find(a =>
-            a.owner_name      === uuidResult.userId ||
-            a.asset_id        === uuidResult.userId ||
-            a.user_id         === uuidResult.userId ||
-            a.uuid            === uuidResult.userId ||
-            a.watermark_id    === uuidResult.userId ||
-            a.unique_user_id  === uuidResult.userId
+            normalizeUUID(a.owner_name)     === extractedNorm ||
+            normalizeUUID(a.asset_id)       === extractedNorm ||
+            normalizeUUID(a.user_id)        === extractedNorm ||
+            normalizeUUID(a.uuid)           === extractedNorm ||
+            normalizeUUID(a.watermark_id)   === extractedNorm ||
+            normalizeUUID(a.unique_user_id) === extractedNorm
           );
 
           if (backendMatch) {
@@ -232,12 +236,13 @@ function VerifyPage() {
         const storedAssets = [...vaultAssets, ...reportAssets];
 
         if (uuidResult.found) {
+          const extractedNorm = normalizeUUID(uuidResult.userId);
           const found = storedAssets.find(a =>
-            (a.uniqueUserId && a.uniqueUserId === uuidResult.userId) ||
-            (a.userId       && a.userId       === uuidResult.userId) ||
-            (a.uuid         && a.uuid         === uuidResult.userId) ||
-            (a.owner_name   && a.owner_name   === uuidResult.userId) ||
-            (a.asset_id     && a.asset_id     === uuidResult.userId)
+            normalizeUUID(a.uniqueUserId) === extractedNorm ||
+            normalizeUUID(a.userId)       === extractedNorm ||
+            normalizeUUID(a.uuid)         === extractedNorm ||
+            normalizeUUID(a.owner_name)   === extractedNorm ||
+            normalizeUUID(a.asset_id)     === extractedNorm
           );
           if (found) {
             matchFound   = true;
