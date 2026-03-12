@@ -36,8 +36,18 @@ function VerifyPage() {
   const PAYLOAD_BYTES_36  = 1 + UUID_FIELD_LEN_36 + 2;
   const PAYLOAD_BITS_36   = PAYLOAD_BYTES_36 * 8;
 
-  // Normalize UUID for comparison — strip hyphens, lowercase
+  // Normalize UUID — strip hyphens, lowercase
   const normalizeUUID = (id) => (id || '').replace(/-/g, '').toLowerCase();
+
+  // Match UUIDs even if one is truncated (embedder stores 32 chars, full UUID is 32 hex chars)
+  const uuidMatches = (a, b) => {
+    if (!a || !b) return false;
+    const na = normalizeUUID(a);
+    const nb = normalizeUUID(b);
+    if (!na || !nb) return false;
+    // Exact match OR one starts with the other (handles truncation)
+    return na === nb || na.startsWith(nb) || nb.startsWith(na);
+  };
 
   const crc16js = (bytes) => {
     let crc = 0xFFFF;
@@ -227,7 +237,7 @@ function VerifyPage() {
               a.owner_name, a.asset_id, a.user_id,
               a.uuid, a.watermark_id, a.unique_user_id, a.id
             ];
-            return candidates.some(f => f && normalizeUUID(String(f)) === extractedNorm);
+            return candidates.some(f => f && uuidMatches(String(f), uuidResult.userId));
           });
 
           if (backendMatch) {
@@ -258,7 +268,7 @@ function VerifyPage() {
               a.uniqueUserId, a.userId, a.uuid,
               a.owner_name, a.asset_id, a.id
             ];
-            return candidates.some(f => f && normalizeUUID(String(f)) === extractedNorm);
+            return candidates.some(f => f && uuidMatches(String(f), uuidResult.userId));
           });
           if (found) {
             matchFound   = true;
