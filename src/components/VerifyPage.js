@@ -27,9 +27,14 @@ function VerifyPage() {
   };
 
   const STEGO_TILE     = 12;
-  const UUID_FIELD_LEN = 36; // support full UUID with hyphens
+  const UUID_FIELD_LEN = 32; // embedded without hyphens = 32 chars
   const PAYLOAD_BYTES  = 1 + UUID_FIELD_LEN + 2;
   const PAYLOAD_BITS   = PAYLOAD_BYTES * 8;
+
+  // Also try 36-char field for newer embeds
+  const UUID_FIELD_LEN_36 = 36;
+  const PAYLOAD_BYTES_36  = 1 + UUID_FIELD_LEN_36 + 2;
+  const PAYLOAD_BITS_36   = PAYLOAD_BYTES_36 * 8;
 
   // Normalize UUID for comparison — strip hyphens, lowercase
   const normalizeUUID = (id) => (id || '').replace(/-/g, '').toLowerCase();
@@ -44,25 +49,31 @@ function VerifyPage() {
     return crc & 0xFFFF;
   };
 
-  const parsePayloadBits = (bits) => {
-    if (bits.length < PAYLOAD_BITS) return null;
-    const bytes = new Uint8Array(PAYLOAD_BYTES);
-    for (let i = 0; i < PAYLOAD_BYTES; i++) {
+  const parsePayloadBitsLen = (bits, fieldLen) => {
+    const payBytes = 1 + fieldLen + 2;
+    const payBits  = payBytes * 8;
+    if (bits.length < payBits) return null;
+    const bytes = new Uint8Array(payBytes);
+    for (let i = 0; i < payBytes; i++) {
       let v = 0;
       for (let b = 0; b < 8; b++) v = (v << 1) | (bits[i * 8 + b] || 0);
       bytes[i] = v;
     }
     const lenByte    = bytes[0];
-    if (lenByte <= 0 || lenByte > UUID_FIELD_LEN) return null;
-    const uuidPadded = bytes.slice(1, 1 + UUID_FIELD_LEN);
-    const crcRead    = (bytes[PAYLOAD_BYTES - 2] << 8) | bytes[PAYLOAD_BYTES - 1];
-    const forCrc     = new Uint8Array(1 + UUID_FIELD_LEN);
+    if (lenByte <= 0 || lenByte > fieldLen) return null;
+    const uuidPadded = bytes.slice(1, 1 + fieldLen);
+    const crcRead    = (bytes[payBytes - 2] << 8) | bytes[payBytes - 1];
+    const forCrc     = new Uint8Array(1 + fieldLen);
     forCrc[0] = lenByte; forCrc.set(uuidPadded, 1);
     if (crc16js(forCrc) !== crcRead) return null;
     let uid = '';
     for (let i = 0; i < lenByte; i++) uid += String.fromCharCode(uuidPadded[i]);
     return uid;
   };
+
+  const parsePayloadBits = (bits) =>
+    parsePayloadBitsLen(bits, UUID_FIELD_LEN) ||
+    parsePayloadBitsLen(bits, UUID_FIELD_LEN_36);
 
   const parseIMGCRYPT3Msg = (text) => {
     const isV3 = text.includes('IMGCRYPT3|');
@@ -201,52 +212,58 @@ function VerifyPage() {
       let matchFound   = false;
       let matchedAsset = null;
 
-      if (uuidResult.found) {
-        try {
-          const { adminAPI } = await import('../api/client');
-          const response = await adminAPI.getAllVault();
-          const allAssets = response?.data || response || [];
+      // ── STEP 1: Backend lookup (getAllVault returns { assets: [...] }) ──
+      try {
+        const { adminAPI } = await import('../api/client');
+        const response = await adminAPI.getAllVault();
+        // Fix: correct key is response.assets not response.data
+        const allAssets = response?.assets || response?.data || (Array.isArray(response) ? response : []);
+        console.log('[Verify] Backend assets loaded:', allAssets.length, '| Extracted UUID:', uuidResult.userId);
 
+        if (uuidResult.found && allAssets.length > 0) {
           const extractedNorm = normalizeUUID(uuidResult.userId);
-          const backendMatch = allAssets.find(a =>
-            normalizeUUID(a.owner_name)     === extractedNorm ||
-            normalizeUUID(a.asset_id)       === extractedNorm ||
-            normalizeUUID(a.user_id)        === extractedNorm ||
-            normalizeUUID(a.uuid)           === extractedNorm ||
-            normalizeUUID(a.watermark_id)   === extractedNorm ||
-            normalizeUUID(a.unique_user_id) === extractedNorm
-          );
+          const backendMatch = allAssets.find(a => {
+            const candidates = [
+              a.owner_name, a.asset_id, a.user_id,
+              a.uuid, a.watermark_id, a.unique_user_id, a.id
+            ];
+            return candidates.some(f => f && normalizeUUID(String(f)) === extractedNorm);
+          });
 
           if (backendMatch) {
             matchFound   = true;
             matchedAsset = {
-              userName     : backendMatch.owner_name || backendMatch.user_name || backendMatch.name,
-              uniqueUserId : backendMatch.owner_name || backendMatch.asset_id,
+              userName     : backendMatch.owner_name || backendMatch.user_name || backendMatch.name || backendMatch.username,
+              uniqueUserId : backendMatch.user_id || backendMatch.owner_name || backendMatch.asset_id,
               dateEncrypted: backendMatch.capture_timestamp || backendMatch.created_at,
             };
+            console.log('[Verify] Backend match found:', matchedAsset.userName);
           }
-        } catch (e) {
-          console.warn('Backend lookup failed, falling back to localStorage', e);
         }
+      } catch (e) {
+        console.warn('[Verify] Backend lookup failed:', e);
       }
 
+      // ── STEP 2: localStorage fallback ──
       if (!matchFound) {
         const vaultAssets  = JSON.parse(localStorage.getItem('vaultImages')     || '[]');
         const reportAssets = JSON.parse(localStorage.getItem('analysisReports') || '[]');
         const storedAssets = [...vaultAssets, ...reportAssets];
+        console.log('[Verify] localStorage assets:', storedAssets.length);
 
-        if (uuidResult.found) {
+        if (uuidResult.found && storedAssets.length > 0) {
           const extractedNorm = normalizeUUID(uuidResult.userId);
-          const found = storedAssets.find(a =>
-            normalizeUUID(a.uniqueUserId) === extractedNorm ||
-            normalizeUUID(a.userId)       === extractedNorm ||
-            normalizeUUID(a.uuid)         === extractedNorm ||
-            normalizeUUID(a.owner_name)   === extractedNorm ||
-            normalizeUUID(a.asset_id)     === extractedNorm
-          );
+          const found = storedAssets.find(a => {
+            const candidates = [
+              a.uniqueUserId, a.userId, a.uuid,
+              a.owner_name, a.asset_id, a.id
+            ];
+            return candidates.some(f => f && normalizeUUID(String(f)) === extractedNorm);
+          });
           if (found) {
             matchFound   = true;
             matchedAsset = found;
+            console.log('[Verify] localStorage match found:', found);
           }
         }
       }
