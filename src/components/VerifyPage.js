@@ -222,32 +222,48 @@ function VerifyPage() {
       let matchFound   = false;
       let matchedAsset = null;
 
-      // ── STEP 1: Backend lookup (getAllVault returns { assets: [...] }) ──
+      // ── STEP 1: Backend lookup — vault + users table ──
       try {
         const { adminAPI } = await import('../api/client');
-        const response = await adminAPI.getAllVault();
-        // Fix: correct key is response.assets not response.data
-        const allAssets = response?.assets || response?.data || (Array.isArray(response) ? response : []);
-        console.log('[Verify] Backend assets loaded:', allAssets.length, '| Extracted UUID:', uuidResult.userId);
+
+        // Load vault assets and users in parallel
+        const [vaultRes, usersRes] = await Promise.all([
+          adminAPI.getAllVault(),
+          adminAPI.getUsers().catch(() => ({ users: [] }))
+        ]);
+
+        const allAssets = vaultRes?.assets || vaultRes?.data || (Array.isArray(vaultRes) ? vaultRes : []);
+        const allUsers  = usersRes?.users  || usersRes?.data || (Array.isArray(usersRes)  ? usersRes  : []);
+
+        console.log('[Verify] Assets:', allAssets.length, '| Users:', allUsers.length, '| UUID:', uuidResult.userId);
 
         if (uuidResult.found && allAssets.length > 0) {
-          const extractedNorm = normalizeUUID(uuidResult.userId);
           const backendMatch = allAssets.find(a => {
-            const candidates = [
-              a.owner_name, a.asset_id, a.user_id,
-              a.uuid, a.watermark_id, a.unique_user_id, a.id
-            ];
+            const candidates = [a.owner_name, a.asset_id, a.user_id, a.uuid, a.watermark_id, a.unique_user_id, a.id];
             return candidates.some(f => f && uuidMatches(String(f), uuidResult.userId));
           });
 
           if (backendMatch) {
-            matchFound   = true;
+            matchFound = true;
+
+            // Cross-reference with users table to get real username
+            const ownerEmail = backendMatch.owner_email || null;
+            const ownerName  = backendMatch.owner_name  || null;
+            const realUser   = allUsers.find(u =>
+              (ownerEmail && u.email === ownerEmail) ||
+              (ownerName  && u.username === ownerName) ||
+              u.id === backendMatch.user_id
+            );
+
+            console.log('[Verify] realUser:', realUser, '| ownerEmail:', ownerEmail, '| ownerName:', ownerName);
+
             matchedAsset = {
-              userName     : backendMatch.owner_name || backendMatch.user_name || backendMatch.name || backendMatch.username,
-              uniqueUserId : backendMatch.user_id || backendMatch.owner_name || backendMatch.asset_id,
+              userName     : realUser?.username || ownerEmail || ownerName || '—',
+              userEmail    : realUser?.email    || ownerEmail || null,
+              uniqueUserId : uuidResult.userId,
               dateEncrypted: backendMatch.capture_timestamp || backendMatch.created_at,
             };
-            console.log('[Verify] Backend match found:', matchedAsset.userName);
+            console.log('[Verify] Match found:', matchedAsset);
           }
         }
       } catch (e) {
@@ -412,16 +428,17 @@ function VerifyPage() {
 
                 {[
                   {
-                    label: 'Image Owner',
-                    value: verificationResult.asset.userName ||
-                           verificationResult.asset.uniqueUserId ||
-                           verificationResult.asset.ownerName || '—',
+                    label: 'Name',
+                    value: verificationResult.asset.userName || '—',
                     highlight: true,
                   },
                   {
+                    label: 'Email',
+                    value: verificationResult.asset.userEmail || '—',
+                  },
+                  {
                     label: 'UUID',
-                    value: verificationResult.uuid ||
-                           verificationResult.asset.uniqueUserId || '—',
+                    value: verificationResult.asset.uniqueUserId || verificationResult.uuid || '—',
                     mono: true,
                   },
                   {
