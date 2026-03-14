@@ -797,9 +797,9 @@ const generateAssetId = (imageData) => {
 // ============================================
 
 const STEGO_TILE     = 12;
-const UUID_FIELD_LEN = 32;
-const PAYLOAD_BYTES  = 1 + UUID_FIELD_LEN + 2; // 35 bytes
-const PAYLOAD_BITS   = PAYLOAD_BYTES * 8;       // 280 bits
+const UUID_FIELD_LEN = 36; // standard UUID v4 is always 36 chars (32 hex + 4 hyphens)
+const PAYLOAD_BYTES  = 1 + UUID_FIELD_LEN + 2; // 39 bytes
+const PAYLOAD_BITS   = PAYLOAD_BYTES * 8;       // 312 bits
 
 const crc16js = (bytes) => {
   let crc = 0xFFFF;
@@ -812,7 +812,8 @@ const crc16js = (bytes) => {
 };
 
 const buildPayloadBits = (userId) => {
-  const str = (userId || '').substring(0, UUID_FIELD_LEN);
+  // Strip hyphens so a standard 36-char UUID fits in 32 chars (hex only)
+  const str = (userId || '').replace(/-/g, '').substring(0, UUID_FIELD_LEN);
   const uuidPadded = new Uint8Array(UUID_FIELD_LEN);
   for (let i = 0; i < str.length; i++) uuidPadded[i] = str.charCodeAt(i);
   const forCrc = new Uint8Array(1 + UUID_FIELD_LEN);
@@ -847,6 +848,10 @@ const parsePayloadBits = (bits) => {
   if (crc16js(forCrc) !== crcRead) return null;
   let uid = '';
   for (let i = 0; i < lenByte; i++) uid += String.fromCharCode(uuidPadded[i]);
+  // Restore hyphens if this looks like a 32-char hex UUID (stripped on embed)
+  if (uid.length === 32 && /^[0-9a-fA-F]{32}$/.test(uid)) {
+    uid = `${uid.slice(0,8)}-${uid.slice(8,12)}-${uid.slice(12,16)}-${uid.slice(16,20)}-${uid.slice(20)}`;
+  }
   return uid;
 };
 
