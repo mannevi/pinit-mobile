@@ -81,9 +81,33 @@ function VerifyPage() {
     return uid;
   };
 
+  // Lenient parser — ignores CRC, fallback for cropped images
+  // Returns partial UUID if at least 8 printable chars are recovered
+  const parsePayloadBitsLenLenient = (bits, fieldLen) => {
+    const payBytes = 1 + fieldLen + 2;
+    if (bits.length < 16) return null;
+    const bytes = new Uint8Array(payBytes);
+    for (let i = 0; i < payBytes; i++) {
+      let v = 0;
+      for (let b = 0; b < 8; b++) v = (v << 1) | (bits[i * 8 + b] || 0);
+      bytes[i] = v;
+    }
+    const lenByte = bytes[0];
+    if (lenByte <= 0 || lenByte > fieldLen) return null;
+    let uid = '';
+    for (let i = 0; i < lenByte; i++) {
+      const code = bytes[1 + i];
+      if (code < 32 || code > 126) break;
+      uid += String.fromCharCode(code);
+    }
+    return uid.length >= 8 ? uid : null;
+  };
+
   const parsePayloadBits = (bits) =>
     parsePayloadBitsLen(bits, UUID_FIELD_LEN) ||
-    parsePayloadBitsLen(bits, UUID_FIELD_LEN_36);
+    parsePayloadBitsLen(bits, UUID_FIELD_LEN_36) ||
+    parsePayloadBitsLenLenient(bits, UUID_FIELD_LEN) ||
+    parsePayloadBitsLenLenient(bits, UUID_FIELD_LEN_36);
 
   const parseIMGCRYPT3Msg = (text) => {
     const isV3 = text.includes('IMGCRYPT3|');
