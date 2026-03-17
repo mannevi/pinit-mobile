@@ -231,7 +231,7 @@ function UserDashboard({ user, onLogout }) {
     // ALWAYS use production URL for public sharing (no login required!)
     const baseUrl = 'https://image-crypto-analyzer.vercel.app';
     
-    const verifyUrl = `${baseUrl}/public/verify?data=${encodedData}`;
+    const verifyUrl = `${baseUrl}/public/certificate?data=${encodedData}`;
     
     const text = `🔐 PINIT Image Forensics Certificate & Report
 
