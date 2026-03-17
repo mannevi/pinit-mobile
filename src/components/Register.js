@@ -2,12 +2,34 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import './Register.css';
 
+// ─── WebAuthn helpers ────────────────────────────────────────────────────────
+
+const isBiometricSupported = () =>
+  !!(window.PublicKeyCredential &&
+     typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function');
+
+const checkBiometricAvailable = async () => {
+  if (!isBiometricSupported()) return false;
+  try {
+    return await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+  } catch {
+    return false;
+  }
+};
+
+// Convert ArrayBuffer → base64 (for storage)
+const bufToBase64 = (buf) =>
+  btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
 function Register() {
-  const [step,     setStep]     = useState(1);
+  const [step,     setStep]     = useState(1);   // 1=form  2=OTP  3=biometric  4=done
   const [formData, setFormData] = useState({ name: '', email: '', password: '', confirmPassword: '' });
   const [otp,      setOtp]      = useState('');
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(true);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -24,7 +46,7 @@ function Register() {
     return true;
   };
 
-  // Step 1 — Register
+  // ── Step 1 — Register ──────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
@@ -42,6 +64,10 @@ function Register() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.detail || 'Registration failed'); return; }
+
+      // Check if biometric is supported before going to OTP
+      const available = await checkBiometricAvailable();
+      setBiometricSupported(available);
       setStep(2);
     } catch {
       setError('Cannot connect to server. Please make sure the backend is running.');
@@ -50,7 +76,7 @@ function Register() {
     }
   };
 
-  // Step 2 — Verify OTP
+  // ── Step 2 — Verify OTP ────────────────────────────────────────────────────
   const handleOTPSubmit = async (e) => {
     e.preventDefault();
     if (otp.length !== 6) { setError('Please enter the 6-digit OTP'); return; }
@@ -64,7 +90,13 @@ function Register() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.detail || 'Invalid OTP'); return; }
-      setStep(3);
+
+      // OTP passed — go to biometric enrollment if supported
+      if (biometricSupported) {
+        setStep(3);
+      } else {
+        setStep(4); // skip biometric — go straight to done
+      }
     } catch {
       setError('Cannot connect to server.');
     } finally {
@@ -86,10 +118,80 @@ function Register() {
     }
   };
 
+  // ── Step 3 — Biometric Enrollment ─────────────────────────────────────────
+  const handleBiometricEnroll = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // Create a new credential on this device using WebAuthn
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          // Challenge — random bytes (server should provide this in production)
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+
+          // Relying party — your app
+          rp: {
+            name: 'Image Forensics App',
+            id  : window.location.hostname
+          },
+
+          // User info — tied to their email
+          user: {
+            id         : new TextEncoder().encode(formData.email), // unique per user
+            name       : formData.email,
+            displayName: formData.name
+          },
+
+          // Algorithms to support (ES256 is standard)
+          pubKeyCredParams: [
+            { alg: -7,   type: 'public-key' }, // ES256
+            { alg: -257, type: 'public-key' }  // RS256 fallback
+          ],
+
+          // Must use built-in platform authenticator (fingerprint / Face ID)
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',  // device built-in only
+            userVerification       : 'required',  // must verify biometric
+            requireResidentKey     : false
+          },
+
+          timeout: 60000
+        }
+      });
+
+      if (credential) {
+        // Save credential ID to localStorage so login can use it
+        const credId = bufToBase64(credential.rawId);
+        localStorage.setItem('biometricCredentialId', credId);
+        localStorage.setItem('biometricEmail',        formData.email);
+        localStorage.setItem('biometricEnrolled',     'true');
+
+        console.log('✅ Biometric enrolled for:', formData.email);
+        setStep(4); // done
+      }
+    } catch (e) {
+      if (e.name === 'NotAllowedError') {
+        setError('Biometric was cancelled. You can still login with password.');
+      } else if (e.name === 'NotSupportedError') {
+        setError('Biometric not supported on this device.');
+      } else {
+        setError('Biometric setup failed: ' + e.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const skipBiometric = () => {
+    setStep(4);
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="register-container">
       <div className="register-card">
 
+        {/* ── Step 1: Registration Form ───────────────────────────────── */}
         {step === 1 && (
           <>
             <div className="register-header">
@@ -128,6 +230,7 @@ function Register() {
           </>
         )}
 
+        {/* ── Step 2: OTP Verification ────────────────────────────────── */}
         {step === 2 && (
           <>
             <div className="register-header">
@@ -164,16 +267,139 @@ function Register() {
           </>
         )}
 
+        {/* ── Step 3: Biometric Enrollment ────────────────────────────── */}
         {step === 3 && (
+          <>
+            <div className="register-header">
+              <h1>Setup Fingerprint</h1>
+              <p>Register your fingerprint for faster and secure login</p>
+            </div>
+            <div className="register-form">
+              {error && <div className="error-message">{error}</div>}
+
+              {/* Big fingerprint icon */}
+              <div style={{
+                textAlign    : 'center',
+                padding      : '32px 0',
+                fontSize     : '72px',
+                lineHeight   : 1
+              }}>
+                👆
+              </div>
+
+              <p style={{
+                textAlign   : 'center',
+                color       : '#555',
+                marginBottom: '8px',
+                fontSize    : '14px'
+              }}>
+                Your device will ask you to scan your fingerprint or use Face ID.
+                This links your identity to every image you encrypt.
+              </p>
+
+              <p style={{
+                textAlign   : 'center',
+                color       : '#888',
+                marginBottom: '24px',
+                fontSize    : '12px'
+              }}>
+                Your biometric data never leaves your device.
+              </p>
+
+              {/* What this does */}
+              <div style={{
+                background   : '#f0f4ff',
+                border       : '1px solid #c7d2fe',
+                borderRadius : '8px',
+                padding      : '12px 16px',
+                marginBottom : '20px',
+                fontSize     : '13px',
+                color        : '#3730a3'
+              }}>
+                <strong>🔐 What this does:</strong>
+                <ul style={{ margin: '8px 0 0 0', paddingLeft: '18px', lineHeight: '1.8' }}>
+                  <li>Links your fingerprint to your account UUID</li>
+                  <li>Next time — tap fingerprint to login instantly</li>
+                  <li>Your UUID auto-embeds into every image you encrypt</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={handleBiometricEnroll}
+                disabled={loading}
+                style={{
+                  width         : '100%',
+                  padding       : '14px',
+                  background    : loading
+                    ? '#a5b4fc'
+                    : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  color         : 'white',
+                  border        : 'none',
+                  borderRadius  : '8px',
+                  fontSize      : '16px',
+                  fontWeight    : '600',
+                  cursor        : loading ? 'not-allowed' : 'pointer',
+                  marginBottom  : '12px',
+                  display       : 'flex',
+                  alignItems    : 'center',
+                  justifyContent: 'center',
+                  gap           : '8px'
+                }}
+              >
+                {loading ? 'Setting up...' : '👆 Setup Fingerprint / Face ID'}
+              </button>
+
+              <button
+                onClick={skipBiometric}
+                style={{
+                  width        : '100%',
+                  padding      : '12px',
+                  background   : 'transparent',
+                  color        : '#888',
+                  border       : '1px solid #ddd',
+                  borderRadius : '8px',
+                  fontSize     : '14px',
+                  cursor       : 'pointer'
+                }}
+              >
+                Skip for now — use password only
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Step 4: All Done ────────────────────────────────────────── */}
+        {step === 4 && (
           <>
             <div className="register-header">
               <h1>All Done! ✅</h1>
               <p>Your account has been verified successfully.</p>
             </div>
             <div className="register-form" style={{ textAlign: 'center' }}>
-              <p style={{ marginBottom: 24, color: '#555' }}>
-                You can now log in with your email and password.
-              </p>
+
+              {localStorage.getItem('biometricEnrolled') === 'true' ? (
+                <div style={{
+                  background  : '#f0fdf4',
+                  border      : '1px solid #86efac',
+                  borderRadius: '8px',
+                  padding     : '16px',
+                  marginBottom: '24px',
+                  color       : '#166534',
+                  fontSize    : '14px'
+                }}>
+                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>👆✅</div>
+                  <strong>Fingerprint registered!</strong>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '13px' }}>
+                    You can now login with just your fingerprint.
+                    Your UUID will auto-embed into every image you encrypt.
+                  </p>
+                </div>
+              ) : (
+                <p style={{ marginBottom: '24px', color: '#555' }}>
+                  You can now log in with your email and password.
+                </p>
+              )}
+
               <button className="btn-primary" onClick={() => navigate('/login')}>
                 Go to Login
               </button>
