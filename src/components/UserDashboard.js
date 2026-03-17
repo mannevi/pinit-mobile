@@ -229,7 +229,8 @@ function UserDashboard({ user, onLogout }) {
     const encodedData = btoa(JSON.stringify(comprehensiveData));
     
     // Use production URL (replace with YOUR actual Vercel production URL!)
-    const baseUrl = window.location.origin.includes('localhost') || window.location.origin.includes('pv7y0j6lj')
+    // ALWAYS use production URL for sharing (no login required!)
+const baseUrl = 'https://image-crypto-analyzer-pv7y0j6lj-mannevis-projects.vercel.app';
       ? 'https://image-crypto-analyzer.vercel.app'  // ← Replace with YOUR production URL!
       : window.location.origin;
     
