@@ -18,57 +18,7 @@ function PublicCertificateView() {
   try {
     console.log('Loading certificate:', certificateId);
     
-    // First, try to get data from URL parameter (works on any device!)
-    const urlParams = new URLSearchParams(window.location.search);
-    const encodedData = urlParams.get('data');
-    
-    if (encodedData) {
-      // Decode certificate data from URL (simple base64 → JSON)
-      try {
-        const decodedString = atob(encodedData);
-        const cert = JSON.parse(decodedString);
-        console.log('Certificate loaded from URL:', cert);
-        
-        // Normalize field names (handle both snake_case and camelCase)
-        const normalizedCert = {
-          certificateId: cert.certificate_id || cert.certificateId,
-          assetId: cert.asset_id || cert.assetId,
-          userId: cert.user_id || cert.userId || cert.user_name,
-          dateCreated: cert.created_at || cert.dateCreated,
-          status: cert.status,
-          confidence: cert.confidence,
-          analysis_data: cert.analysis_data,
-          // Add full report fields
-          reportId: cert.report_id || cert.analysis_data?.reportId,
-          userName: cert.user_name || cert.analysis_data?.userName,
-          userEmail: cert.user_email || cert.analysis_data?.userEmail,
-          deviceName: cert.device_name || cert.analysis_data?.deviceName,
-          gpsLocation: cert.gps_location || cert.analysis_data?.gpsLocation,
-          assetResolution: cert.asset_resolution || cert.analysis_data?.assetResolution,
-          assetFileSize: cert.asset_file_size || cert.analysis_data?.assetFileSize,
-          metrics: cert.metrics || cert.analysis_data?.metrics,
-          ownershipAtCreation: {
-            assetResolution: cert.asset_resolution || cert.analysis_data?.assetResolution,
-            assetFileSize: cert.asset_file_size || cert.analysis_data?.assetFileSize,
-            timeStamp: cert.created_at || cert.analysis_data?.timestamp,
-            gpsLocation: cert.gps_location?.coordinates || cert.analysis_data?.gpsLocation?.coordinates || 'Not Available'
-          },
-          technicalDetails: {
-            deviceName: cert.device_name || cert.analysis_data?.deviceName || 'Unknown',
-            pixelsVerified: cert.analysis_data?.totalPixels || 'N/A',
-            ownershipInfo: cert.status || 'Verified'
-          }
-        };
-        
-        setCertificate(normalizedCert);
-        setLoading(false);
-        return;
-      } catch (decodeErr) {
-        console.error('Failed to decode certificate from URL:', decodeErr);
-      }
-    }
-    
-    // Fallback: try localStorage (for backward compatibility)
+    // Load from shared certificates (public storage)
     const sharedCerts = JSON.parse(localStorage.getItem('sharedCertificates') || '[]');
     console.log('Shared certificates in localStorage:', sharedCerts);
     

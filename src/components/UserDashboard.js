@@ -206,68 +206,69 @@ function UserDashboard({ user, onLogout }) {
   };
 
   const handleShareCert = (cert) => {
-    // Create comprehensive data with FULL report
-    const comprehensiveData = {
-      certificate_id: cert.certificate_id,
-      asset_id: cert.asset_id,
-      confidence: cert.confidence,
-      status: cert.status,
-      created_at: cert.created_at,
-      // Include FULL analysis data/report
-      analysis_data: cert.analysis_data,
-      report_id: cert.analysis_data?.reportId,
-      user_name: cert.analysis_data?.userName,
-      user_email: cert.analysis_data?.userEmail,
-      device_name: cert.analysis_data?.deviceName,
-      gps_location: cert.analysis_data?.gpsLocation,
-      asset_resolution: cert.analysis_data?.assetResolution,
-      asset_file_size: cert.analysis_data?.assetFileSize,
-      metrics: cert.analysis_data?.metrics
-    };
+    // Save certificate to public storage (so anyone can view it)
+    const sharedCerts = JSON.parse(localStorage.getItem('sharedCertificates') || '[]');
     
-    // Encode comprehensive data
-    const encodedData = btoa(JSON.stringify(comprehensiveData));
-    
-    // ALWAYS use production URL for public sharing (no login required!)
-    const baseUrl = 'https://image-crypto-analyzer.vercel.app';
-    
-    const verifyUrl = `${baseUrl}/public/certificate?data=${encodedData}`;
-    
-    const text = `🔐 PINIT Image Forensics Certificate & Report
+    // Check if already shared
+    const existing = sharedCerts.find(c => c.certificate_id === cert.certificate_id);
+    if (!existing) {
+      // Add certificate with all data
+      const certToShare = {
+        certificateId: cert.certificate_id,
+        assetId: cert.asset_id,
+        userId: cert.user_id,
+        confidence: cert.confidence,
+        status: cert.status,
+        dateCreated: cert.created_at,
+        ownershipAtCreation: {
+          uniqueUserId: cert.analysis_data?.uniqueUserId,
+          assetResolution: cert.analysis_data?.assetResolution,
+          assetFileSize: cert.analysis_data?.assetFileSize,
+          timeStamp: cert.created_at,
+          gpsLocation: cert.analysis_data?.gpsLocation?.coordinates || 'Not Available'
+        },
+        technicalDetails: {
+          deviceName: cert.analysis_data?.deviceName || 'Unknown',
+          pixelsVerified: cert.analysis_data?.totalPixels || 'N/A',
+          ownershipInfo: cert.status || 'Verified'
+        },
+        imagePreview: cert.image_preview
+      };
+      
+      sharedCerts.push(certToShare);
+      localStorage.setItem('sharedCertificates', JSON.stringify(sharedCerts));
+    }
 
-Certificate ID: ${cert.certificate_id}
-Asset ID: ${cert.asset_id}
-Status: ${cert.status}
-Confidence: ${cert.confidence}%
+    // Generate shareable link (simple and clean!)
+    const shareLink = `${window.location.origin}/certificate/${cert.certificate_id}`;
 
-📊 Full Report Includes:
-• Complete analysis metrics
-• Device information
-• GPS location data
-• Ownership verification
-• Technical details
-
-🔗 View Certificate & Report:
-${verifyUrl}
-
-✨ This link contains the complete forensic analysis report with all details.
-Protected with PINIT invisible watermarking technology.`;
-    
+    // Try native share API first (mobile devices)
     if (navigator.share) {
-      navigator.share({ 
-        title: 'PINIT Certificate & Forensic Report', 
-        text: text,
-        url: verifyUrl
+      navigator.share({
+        title: 'PINIT Ownership Certificate',
+        text: `🔐 View my verified ownership certificate\n\nAsset ID: ${cert.asset_id}\nConfidence: ${cert.confidence}%\nStatus: ${cert.status}`,
+        url: shareLink
       }).then(() => {
         setTimeout(() => {
-          alert(`✅ Certificate & Full Report Shared!\n\n📊 Link includes:\n• Certificate details\n• Complete analysis report\n• All forensic metrics\n• Device & GPS data\n\n📱 Works on any device!\n🔗 Link: ${verifyUrl.length} characters`);
+          alert('✅ Certificate link shared successfully!\n\n📱 Anyone can view this certificate on any device.');
         }, 500);
-      }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(verifyUrl).then(() => {
-        alert(`✅ Certificate & Report Link Copied!\n\n📊 This link contains:\n• Certificate details\n• Complete forensic analysis\n• All metrics and data\n\n${verifyUrl}\n\n📱 Share this link to show the full report on any device!`);
+      }).catch(() => {
+        // Fallback to clipboard
+        copyToClipboard(shareLink);
       });
+    } else {
+      // Fallback to clipboard
+      copyToClipboard(shareLink);
     }
+  };
+
+  const copyToClipboard = (link) => {
+    navigator.clipboard.writeText(link).then(() => {
+      alert(`✅ Certificate link copied to clipboard!\n\n${link}\n\n📱 Share this link via WhatsApp, Email, SMS, etc.\n🔓 Anyone can view the certificate without login!`);
+    }).catch(() => {
+      // Manual fallback
+      prompt('📋 Copy this link to share:', link);
+    });
   };
 
   const handleChangePassword = async () => {
