@@ -13,12 +13,14 @@ const isCapacitor = () => {
   }
 };
 
-const getNativeBiometric = async () => {
+// @aparajita/capacitor-biometric-auth — supports Capacitor 8
+const getBiometricAuth = async () => {
   if (!isCapacitor()) return null;
   try {
-    const { NativeBiometric } = await import('capacitor-native-biometric');
-    return NativeBiometric;
-  } catch {
+    const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth');
+    return BiometricAuth;
+  } catch (e) {
+    console.log('BiometricAuth plugin not found:', e.message);
     return null;
   }
 };
@@ -61,23 +63,29 @@ function Login({ onLogin }) {
 
       if (isCapacitor()) {
         // ── Native APK ────────────────────────────────────────────────────
-        const NativeBiometric = await getNativeBiometric();
-        if (!NativeBiometric) {
-          console.log('NativeBiometric plugin not found');
+        const BiometricAuth = await getBiometricAuth();
+        if (!BiometricAuth) {
+          console.log('BiometricAuth plugin not found');
           return;
         }
         try {
-          const result = await NativeBiometric.isAvailable();
-          console.log('NativeBiometric isAvailable:', result);
+          // @aparajita/capacitor-biometric-auth API
+          const result = await BiometricAuth.checkBiometry();
+          console.log('BiometricAuth checkBiometry:', result);
           if (result.isAvailable) {
             setBiometricAvailable(true);
-            // Show button always on native — enrolled = has saved session
-            setBiometricEnrolled(!!(savedToken && savedUser));
-            // Auto-trigger only if fully enrolled
-            if (savedToken && savedUser) handleBiometricLogin();
+            // On APK: show button always when biometry available
+            // enrolled = user has previously logged in with password
+            const hasSession = !!(savedToken && savedUser);
+            setBiometricEnrolled(hasSession);
+            // Auto-trigger fingerprint only if they have a saved session
+            if (hasSession) handleBiometricLogin();
+          } else {
+            // Not available — log reason for debugging
+            console.log('Biometry not available. Reason:', result.reason);
           }
         } catch (e) {
-          console.log('NativeBiometric check error:', e);
+          console.log('BiometricAuth check error:', e);
         }
       } else {
         // ── Web browser WebAuthn ──────────────────────────────────────────
@@ -111,14 +119,15 @@ function Login({ onLogin }) {
     try {
       if (isCapacitor()) {
         // ── Native APK fingerprint ──────────────────────────────────────────
-        const NativeBiometric = await getNativeBiometric();
-        if (!NativeBiometric) throw new Error('Plugin not available');
+        const BiometricAuth = await getBiometricAuth();
+        if (!BiometricAuth) throw new Error('Plugin not available');
 
-        await NativeBiometric.verifyIdentity({
-          reason     : 'Login to Image Forensics App',
-          title      : 'Biometric Login',
-          subtitle   : 'Use fingerprint or face to login',
-          description: 'Place your finger on the sensor'
+        // @aparajita/capacitor-biometric-auth uses authenticate()
+        await BiometricAuth.authenticate({
+          reason             : 'Login to Image Forensics App',
+          cancelTitle        : 'Cancel',
+          allowDeviceCredential: true,   // allow PIN fallback if fingerprint fails
+          iosFallbackTitle   : 'Use PIN'
         });
 
         // Biometric passed — restore session
@@ -241,42 +250,53 @@ function Login({ onLogin }) {
   // ── Enroll biometric after successful password login ───────────────────────
   const enrollBiometricAfterLogin = async (user) => {
     try {
-      const credential = await navigator.credentials.create({
-        publicKey: {
-          challenge: crypto.getRandomValues(new Uint8Array(32)),
-          rp: {
-            name: 'Image Forensics App',
-            id  : window.location.hostname
-          },
-          user: {
-            id         : new TextEncoder().encode(user.email || user.id),
-            name       : user.email || user.id,
-            displayName: user.name  || user.username || 'User'
-          },
-          pubKeyCredParams: [
-            { alg: -7,   type: 'public-key' },
-            { alg: -257, type: 'public-key' }
-          ],
-          authenticatorSelection: {
-            authenticatorAttachment: 'platform',
-            userVerification       : 'required',
-            requireResidentKey     : false
-          },
-          timeout: 60000
-        }
-      });
-
-      if (credential) {
-        const credId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
-        localStorage.setItem('biometricCredentialId', credId);
-        localStorage.setItem('biometricEmail',        user.email);
-        localStorage.setItem('biometricEnrolled',     'true');
+      if (isCapacitor()) {
+        // ── APK: biometric already set up in Android OS settings ────────────
+        // No WebAuthn credential needed — just mark as enrolled
+        // @aparajita/capacitor-biometric-auth handles everything natively
+        localStorage.setItem('biometricEnrolled', 'true');
+        localStorage.setItem('biometricEmail',    user.email || '');
         setBiometricEnrolled(true);
-        alert('✅ Fingerprint registered! Next time you can login with just your fingerprint.');
+        alert('✅ Fingerprint enabled! Next time you can login with just your fingerprint.');
+      } else {
+        // ── Web: use WebAuthn credential creation ────────────────────────────
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            rp: {
+              name: 'Image Forensics App',
+              id  : window.location.hostname
+            },
+            user: {
+              id         : new TextEncoder().encode(user.email || user.id),
+              name       : user.email || user.id,
+              displayName: user.name  || user.username || 'User'
+            },
+            pubKeyCredParams: [
+              { alg: -7,   type: 'public-key' },
+              { alg: -257, type: 'public-key' }
+            ],
+            authenticatorSelection: {
+              authenticatorAttachment: 'platform',
+              userVerification       : 'required',
+              requireResidentKey     : false
+            },
+            timeout: 60000
+          }
+        });
+
+        if (credential) {
+          const credId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+          localStorage.setItem('biometricCredentialId', credId);
+          localStorage.setItem('biometricEmail',        user.email);
+          localStorage.setItem('biometricEnrolled',     'true');
+          setBiometricEnrolled(true);
+          alert('✅ Fingerprint registered! Next time you can login with just your fingerprint.');
+        }
       }
     } catch (e) {
       console.log('Biometric enrollment skipped:', e.message);
-      // Non-critical — just skip
+      // Non-critical — just skip silently
     }
   };
 
