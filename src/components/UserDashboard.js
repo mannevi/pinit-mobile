@@ -240,8 +240,8 @@ function UserDashboard({ user, onLogout }) {
     }
 
     // Generate shareable link (simple and clean!)
-    const shareLink = `${window.location.origin}/certificate/${cert.certificate_id}`;
-
+// ALWAYS use production URL (not preview!)
+const shareLink = `https://image-crypto-analyzer.vercel.app/certificate/${cert.certificate_id}`;
     // Try native share API first (mobile devices)
     if (navigator.share) {
       navigator.share({
