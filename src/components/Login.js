@@ -40,6 +40,19 @@ const base64ToUint8 = (base64) => {
   return bytes;
 };
 
+// ─── Fetch with auto-retry (handles server cold start) ──────────────────────────
+const fetchWithRetry = async (url, options, retries = 3, delayMs = 4000) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return res; // success — return immediately
+    } catch (err) {
+      if (attempt === retries) throw err; // all retries exhausted
+      await new Promise(r => setTimeout(r, delayMs)); // wait then retry
+    }
+  }
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 function Login({ onLogin }) {
   const [isAdmin,          setIsAdmin]          = useState(false);
@@ -328,20 +341,19 @@ function Login({ onLogin }) {
     setForgotError('');
     setForgotLoading(true);
     try {
-      const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-password/request', {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() })
-      });
+      const res  = await fetchWithRetry(
+        'https://pinit-backend.onrender.com/auth/forgot-password/request',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: forgotEmail.toLowerCase().trim() }) }
+      );
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Email not registered');
         return;
       }
-      // Email valid — show password fields directly
       setForgotStep('otp');
     } catch {
-      setForgotError('Cannot connect to server. Please try again.');
+      setForgotError('Unable to connect. Please check your internet and try again.');
     } finally {
       setForgotLoading(false);
     }
@@ -361,23 +373,20 @@ function Login({ onLogin }) {
     }
     setForgotLoading(true);
     try {
-      const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-password/reset', {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({
-          email       : forgotEmail.toLowerCase().trim(),
-          new_password: forgotNewPwd
-        })
-      });
+      const res  = await fetchWithRetry(
+        'https://pinit-backend.onrender.com/auth/forgot-password/reset',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: forgotEmail.toLowerCase().trim(), new_password: forgotNewPwd }) }
+      );
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Reset failed. Please try again.');
         return;
       }
       setForgotStep('success');
-      setForgotSuccess('✅ Password reset successfully! You can now login with your new password.');
+      setForgotSuccess('Password reset successfully! You can now login with your new password.');
     } catch {
-      setForgotError('Cannot connect to server. Please try again.');
+      setForgotError('Unable to connect. Please check your internet and try again.');
     } finally {
       setForgotLoading(false);
     }
@@ -389,21 +398,20 @@ function Login({ onLogin }) {
     setForgotError('');
     setForgotLoading(true);
     try {
-      const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-username', {
-        method : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() })
-      });
+      const res  = await fetchWithRetry(
+        'https://pinit-backend.onrender.com/auth/forgot-username',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: forgotEmail.toLowerCase().trim() }) }
+      );
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Email not registered');
         return;
       }
-      // Show username directly in app — no email needed
       setForgotSuccess(data.username);
       setForgotStep('success');
     } catch {
-      setForgotError('Cannot connect to server. Please try again.');
+      setForgotError('Unable to connect. Please check your internet and try again.');
     } finally {
       setForgotLoading(false);
     }
@@ -597,7 +605,7 @@ function Login({ onLogin }) {
               {forgotMode === 'password' && forgotStep === 'email' && (
                 <form onSubmit={handleForgotPasswordRequest}>
                   <p className="forgot-desc">
-                    Enter your registered email address. We'll send you a verification code to reset your password.
+                    Enter your registered email address to reset your password.
                   </p>
                   {forgotError && <div className="error-message">{forgotError}</div>}
                   <div className="form-group">
@@ -611,7 +619,7 @@ function Login({ onLogin }) {
                     />
                   </div>
                   <button type="submit" className="btn-primary" disabled={forgotLoading}>
-                    {forgotLoading ? 'Checking...' : 'Continue'}
+                    {forgotLoading ? '⏳ Connecting...' : 'Continue'}
                   </button>
                 </form>
               )}
@@ -644,7 +652,7 @@ function Login({ onLogin }) {
                     />
                   </div>
                   <button type="submit" className="btn-primary" disabled={forgotLoading}>
-                    {forgotLoading ? 'Resetting...' : 'Reset Password'}
+                    {forgotLoading ? '⏳ Resetting...' : 'Reset Password'}
                   </button>
                   <button
                     type="button"
@@ -660,7 +668,7 @@ function Login({ onLogin }) {
               {forgotMode === 'username' && forgotStep === 'email' && (
                 <form onSubmit={handleForgotUsername}>
                   <p className="forgot-desc">
-                    Enter your registered email address. We'll send your username to that email.
+                    Enter your registered email address to find your username.
                   </p>
                   {forgotError && <div className="error-message">{forgotError}</div>}
                   <div className="form-group">
@@ -674,7 +682,7 @@ function Login({ onLogin }) {
                     />
                   </div>
                   <button type="submit" className="btn-primary" disabled={forgotLoading}>
-                    {forgotLoading ? 'Checking...' : 'Find My Username'}
+                    {forgotLoading ? '⏳ Connecting...' : 'Find My Username'}
                   </button>
                 </form>
               )}
