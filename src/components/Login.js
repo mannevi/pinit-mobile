@@ -322,44 +322,35 @@ function Login({ onLogin }) {
     setForgotSuccess('');
   };
 
-  // ── Forgot Password: Step 1 — send OTP ───────────────────────────────────
+  // ── Forgot Password: Step 1 — verify email exists ───────────────────────
   const handleForgotPasswordRequest = async (e) => {
     e.preventDefault();
     setForgotError('');
     setForgotLoading(true);
-    const controller = new AbortController();
-    const timeout    = setTimeout(() => controller.abort(), 65000);
     try {
       const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-password/request', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() }),
-        signal : controller.signal
+        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() })
       });
-      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Email not registered');
         return;
       }
+      // Email valid — show password fields directly
       setForgotStep('otp');
-    } catch (err) {
-      clearTimeout(timeout);
-      if (err.name === 'AbortError') {
-        setForgotError('Server is waking up. Please wait 30 seconds and try again.');
-      } else {
-        setForgotError('Cannot connect to server. Please try again.');
-      }
+    } catch {
+      setForgotError('Cannot connect to server. Please try again.');
     } finally {
       setForgotLoading(false);
     }
   };
 
-  // ── Forgot Password: Step 2 — verify OTP + reset password ────────────────
+  // ── Forgot Password: Step 2 — reset password instantly ───────────────────
   const handleForgotPasswordReset = async (e) => {
     e.preventDefault();
     setForgotError('');
-
     if (forgotNewPwd.length < 6) {
       setForgotError('Password must be at least 6 characters.');
       return;
@@ -368,70 +359,51 @@ function Login({ onLogin }) {
       setForgotError('Passwords do not match.');
       return;
     }
-
     setForgotLoading(true);
-    const controller2 = new AbortController();
-    const timeout2    = setTimeout(() => controller2.abort(), 65000);
     try {
       const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-password/reset', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body   : JSON.stringify({
           email       : forgotEmail.toLowerCase().trim(),
-          otp         : forgotOtp.trim(),
           new_password: forgotNewPwd
-        }),
-        signal : controller2.signal
+        })
       });
-      clearTimeout(timeout2);
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Reset failed. Please try again.');
         return;
       }
       setForgotStep('success');
-      setForgotSuccess('Password reset successfully! You can now login with your new password.');
-    } catch (err) {
-      clearTimeout(timeout2);
-      if (err.name === 'AbortError') {
-        setForgotError('Server is waking up. Please wait 30 seconds and try again.');
-      } else {
-        setForgotError('Cannot connect to server. Please try again.');
-      }
+      setForgotSuccess('✅ Password reset successfully! You can now login with your new password.');
+    } catch {
+      setForgotError('Cannot connect to server. Please try again.');
     } finally {
       setForgotLoading(false);
     }
   };
 
-  // ── Forgot Username: send username to email ───────────────────────────────
+  // ── Forgot Username — show username instantly in app ──────────────────────
   const handleForgotUsername = async (e) => {
     e.preventDefault();
     setForgotError('');
     setForgotLoading(true);
-    const controller3 = new AbortController();
-    const timeout3    = setTimeout(() => controller3.abort(), 65000);
     try {
       const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-username', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() }),
-        signal : controller3.signal
+        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() })
       });
-      clearTimeout(timeout3);
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Email not registered');
         return;
       }
+      // Show username directly in app — no email needed
+      setForgotSuccess(data.username);
       setForgotStep('success');
-      setForgotSuccess('Your username has been sent to your email address.');
-    } catch (err) {
-      clearTimeout(timeout3);
-      if (err.name === 'AbortError') {
-        setForgotError('Server is waking up. Please wait 30 seconds and try again.');
-      } else {
-        setForgotError('Cannot connect to server. Please try again.');
-      }
+    } catch {
+      setForgotError('Cannot connect to server. Please try again.');
     } finally {
       setForgotLoading(false);
     }
@@ -596,8 +568,25 @@ function Login({ onLogin }) {
               {/* ── Success state ─────────────────────────────────────── */}
               {forgotStep === 'success' && (
                 <div className="forgot-success">
-                  <div className="forgot-success-icon">✅</div>
-                  <p>{forgotSuccess}</p>
+                  <div className="forgot-success-icon">
+                    {forgotMode === 'username' ? '👤' : '✅'}
+                  </div>
+                  {forgotMode === 'username' ? (
+                    <>
+                      <p style={{ color: '#555', marginBottom: '8px' }}>Your username is:</p>
+                      <div style={{
+                        background: '#f0f4ff', border: '2px solid #667eea',
+                        borderRadius: '10px', padding: '16px 24px',
+                        fontSize: '22px', fontWeight: '700',
+                        color: '#667eea', letterSpacing: '2px',
+                        marginBottom: '20px'
+                      }}>
+                        {forgotSuccess}
+                      </div>
+                    </>
+                  ) : (
+                    <p>{forgotSuccess}</p>
+                  )}
                   <button className="btn-primary" onClick={closeForgot}>
                     Back to Login
                   </button>
@@ -622,29 +611,18 @@ function Login({ onLogin }) {
                     />
                   </div>
                   <button type="submit" className="btn-primary" disabled={forgotLoading}>
-                    {forgotLoading ? '⏳ Sending... (may take 30s)' : 'Send Verification Code'}
+                    {forgotLoading ? 'Checking...' : 'Continue'}
                   </button>
                 </form>
               )}
 
-              {/* ── Forgot Password: Step 2 — OTP + New Password ──────── */}
+              {/* ── Forgot Password: Step 2 — Set New Password ────────── */}
               {forgotMode === 'password' && forgotStep === 'otp' && (
                 <form onSubmit={handleForgotPasswordReset}>
                   <p className="forgot-desc">
-                    Enter the verification code sent to <strong>{forgotEmail}</strong> and set your new password.
+                    Set a new password for <strong>{forgotEmail}</strong>
                   </p>
                   {forgotError && <div className="error-message">{forgotError}</div>}
-                  <div className="form-group">
-                    <label>Verification Code (OTP)</label>
-                    <input
-                      type="text"
-                      value={forgotOtp}
-                      onChange={e => { setForgotOtp(e.target.value); setForgotError(''); }}
-                      placeholder="Enter OTP from email"
-                      maxLength={6}
-                      required
-                    />
-                  </div>
                   <div className="form-group">
                     <label>New Password</label>
                     <input
@@ -671,9 +649,9 @@ function Login({ onLogin }) {
                   <button
                     type="button"
                     className="btn-resend"
-                    onClick={() => { setForgotStep('email'); setForgotError(''); setForgotOtp(''); }}
+                    onClick={() => { setForgotStep('email'); setForgotError(''); }}
                   >
-                    ← Change Email / Resend OTP
+                    ← Change Email
                   </button>
                 </form>
               )}
@@ -696,7 +674,7 @@ function Login({ onLogin }) {
                     />
                   </div>
                   <button type="submit" className="btn-primary" disabled={forgotLoading}>
-                    {forgotLoading ? '⏳ Sending... (may take 30s)' : 'Send My Username'}
+                    {forgotLoading ? 'Checking...' : 'Find My Username'}
                   </button>
                 </form>
               )}
