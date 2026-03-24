@@ -327,20 +327,29 @@ function Login({ onLogin }) {
     e.preventDefault();
     setForgotError('');
     setForgotLoading(true);
+    const controller = new AbortController();
+    const timeout    = setTimeout(() => controller.abort(), 65000);
     try {
       const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-password/request', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() })
+        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() }),
+        signal : controller.signal
       });
+      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Email not registered');
         return;
       }
       setForgotStep('otp');
-    } catch {
-      setForgotError('Cannot connect to server. Please try again.');
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') {
+        setForgotError('Server is waking up. Please wait 30 seconds and try again.');
+      } else {
+        setForgotError('Cannot connect to server. Please try again.');
+      }
     } finally {
       setForgotLoading(false);
     }
@@ -361,6 +370,8 @@ function Login({ onLogin }) {
     }
 
     setForgotLoading(true);
+    const controller2 = new AbortController();
+    const timeout2    = setTimeout(() => controller2.abort(), 65000);
     try {
       const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-password/reset', {
         method : 'POST',
@@ -369,8 +380,10 @@ function Login({ onLogin }) {
           email       : forgotEmail.toLowerCase().trim(),
           otp         : forgotOtp.trim(),
           new_password: forgotNewPwd
-        })
+        }),
+        signal : controller2.signal
       });
+      clearTimeout(timeout2);
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Reset failed. Please try again.');
@@ -378,8 +391,13 @@ function Login({ onLogin }) {
       }
       setForgotStep('success');
       setForgotSuccess('Password reset successfully! You can now login with your new password.');
-    } catch {
-      setForgotError('Cannot connect to server. Please try again.');
+    } catch (err) {
+      clearTimeout(timeout2);
+      if (err.name === 'AbortError') {
+        setForgotError('Server is waking up. Please wait 30 seconds and try again.');
+      } else {
+        setForgotError('Cannot connect to server. Please try again.');
+      }
     } finally {
       setForgotLoading(false);
     }
@@ -390,12 +408,16 @@ function Login({ onLogin }) {
     e.preventDefault();
     setForgotError('');
     setForgotLoading(true);
+    const controller3 = new AbortController();
+    const timeout3    = setTimeout(() => controller3.abort(), 65000);
     try {
       const res  = await fetch('https://pinit-backend.onrender.com/auth/forgot-username', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() })
+        body   : JSON.stringify({ email: forgotEmail.toLowerCase().trim() }),
+        signal : controller3.signal
       });
+      clearTimeout(timeout3);
       const data = await res.json();
       if (!res.ok) {
         setForgotError(data.detail || 'Email not registered');
@@ -403,8 +425,13 @@ function Login({ onLogin }) {
       }
       setForgotStep('success');
       setForgotSuccess('Your username has been sent to your email address.');
-    } catch {
-      setForgotError('Cannot connect to server. Please try again.');
+    } catch (err) {
+      clearTimeout(timeout3);
+      if (err.name === 'AbortError') {
+        setForgotError('Server is waking up. Please wait 30 seconds and try again.');
+      } else {
+        setForgotError('Cannot connect to server. Please try again.');
+      }
     } finally {
       setForgotLoading(false);
     }
@@ -595,7 +622,7 @@ function Login({ onLogin }) {
                     />
                   </div>
                   <button type="submit" className="btn-primary" disabled={forgotLoading}>
-                    {forgotLoading ? 'Sending OTP...' : 'Send Verification Code'}
+                    {forgotLoading ? '⏳ Sending... (may take 30s)' : 'Send Verification Code'}
                   </button>
                 </form>
               )}
@@ -669,7 +696,7 @@ function Login({ onLogin }) {
                     />
                   </div>
                   <button type="submit" className="btn-primary" disabled={forgotLoading}>
-                    {forgotLoading ? 'Sending...' : 'Send My Username'}
+                    {forgotLoading ? '⏳ Sending... (may take 30s)' : 'Send My Username'}
                   </button>
                 </form>
               )}
