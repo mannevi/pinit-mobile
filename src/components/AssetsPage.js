@@ -22,6 +22,7 @@ function AssetsPage() {
           ...a,
           assetId:        a.asset_id       || a.assetId,
           reportId:       a.id             || a.asset_id,
+          thumbnailUrl:   a.thumbnail_url  || a.preview_url || a.image_url || a.encrypted_data || a.image_data || null,
           assetResolution: a.resolution    || a.assetResolution || '—',
           assetFileSize:  a.file_size      || a.assetFileSize   || '—',
           uniqueUserId:   a.user_id        || a.uniqueUserId    || null,
@@ -256,6 +257,7 @@ function AssetsPage() {
           <table className="assets-table">
             <thead>
               <tr>
+                <th>Thumbnail</th>
                 <th>Asset ID</th>
                 <th>Creator</th>
                 <th>Date</th>
@@ -268,6 +270,21 @@ function AssetsPage() {
             <tbody>
               {filteredAssets.map((asset) => (
                 <tr key={asset.reportId}>
+                  <td>
+                    <div className="asset-thumbnail">
+                      {asset.thumbnail_url || asset.thumbnailUrl || asset.encrypted_data || asset.encryptedData || asset.image_url || asset.imageUrl ? (
+                        <img 
+                          src={asset.thumbnail_url || asset.thumbnailUrl || asset.encrypted_data || asset.encryptedData || asset.image_url || asset.imageUrl}
+                          alt={asset.assetId}
+                          onClick={() => window.open(asset.thumbnail_url || asset.thumbnailUrl || asset.encrypted_data || asset.encryptedData || asset.image_url || asset.imageUrl, '_blank')}
+                        />
+                      ) : (
+                        <div className="thumbnail-placeholder">
+                          No Image
+                        </div>
+                      )}
+                    </div>
+                  </td>
                   <td className="asset-id">{asset.assetId}</td>
                   <td>
                     <div className="creator-info">

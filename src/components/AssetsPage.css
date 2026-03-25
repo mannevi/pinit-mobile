@@ -782,3 +782,45 @@
 .btn-close-modal:hover {
   background: #cbd5e0;
 }
+/* ─── Thumbnail column ────────────────────────────────────────────────────── */
+.asset-thumbnail {
+  width: 60px;
+  height: 60px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.asset-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s;
+  cursor: pointer;
+}
+
+.asset-thumbnail img:hover {
+  transform: scale(1.15);
+}
+
+.thumbnail-placeholder {
+  color: #9ca3af;
+  font-size: 10px;
+  text-align: center;
+  font-weight: 500;
+  padding: 4px;
+}
+
+/* Adjust table first column for thumbnail */
+.assets-table thead th:first-child {
+  width: 80px;
+  min-width: 80px;
+}
+
+.assets-table tbody td:first-child {
+  padding: 8px;
+}

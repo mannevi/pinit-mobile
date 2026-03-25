@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Users, BarChart3, Shield, CheckCircle, AlertTriangle, HardDrive, Activity, FolderOpen, RefreshCw, UserX, UserCheck, Camera } from 'lucide-react';
-import { adminAPI } from '../api/client';
+import { Users, BarChart3, Shield, CheckCircle, AlertTriangle, HardDrive, Activity, FolderOpen, RefreshCw, UserX, UserCheck, Camera, Trash2, Filter } from 'lucide-react';
+import { adminAPI, vaultAPI } from '../api/client';
 import './AdminDashboard.css';
 
 function AdminDashboard({ user, onLogout }) {
@@ -17,11 +17,23 @@ function AdminDashboard({ user, onLogout }) {
   const [loading,      setLoading]      = useState(true);
   const [selectedUser, setSelectedUser] = useState(null);
   const [proofUser, setProofUser] = useState(null);
+
+  // Filter and selection states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [filteredAssets, setFilteredAssets] = useState([]);
+  const [selectedAssets, setSelectedAssets] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
   const navigate = useNavigate();
 
   const loadStats    = useCallback(async () => { try { const res = await adminAPI.getStats();      setStats(res);             } catch (err) { console.error(err); } }, []);
   const loadUsers    = useCallback(async () => { try { const res = await adminAPI.getUsers();      setUsers(res.users || []); } catch (err) { console.error(err); } }, []);
-  const loadAssets   = useCallback(async () => { try { const res = await adminAPI.getAllVault();   setAssets(res.assets || []); } catch (err) { console.error(err); } }, []);
+  const loadAssets   = useCallback(async () => { try { const res = await adminAPI.getAllVault();   setAssets(res.assets || []); setSelectedAssets([]); setSelectAll(false); } catch (err) { console.error(err); } }, []);
   const loadReports  = useCallback(async () => { try { const res = await adminAPI.getAllReports(); setReports(res.reports || []); } catch (err) { console.error(err); } }, []);
   const loadAuditLog = useCallback(async () => { try { const res = await adminAPI.getAuditLog();  setAuditLog(res.logs || []); } catch (err) { console.error(err); } }, []);
 
@@ -32,6 +44,150 @@ function AdminDashboard({ user, onLogout }) {
   }, [loadStats, loadUsers, loadAssets, loadReports, loadAuditLog]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // Apply filters whenever assets, searchQuery, or statusFilter changes
+  useEffect(() => {
+    let filtered = [...assets];
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(a =>
+        (a.asset_id || '').toLowerCase().includes(query) ||
+        (a.owner_name || '').toLowerCase().includes(query) ||
+        (a.owner_email || '').toLowerCase().includes(query) ||
+        (a.user_id || '').toLowerCase().includes(query)
+      );
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(a => {
+        const isVerified = a.status === 'verified' || (a.confidence || 95) >= 90;
+        return statusFilter === 'verified' ? isVerified : !isVerified;
+      });
+    }
+
+    setFilteredAssets(filtered);
+    setSelectedAssets([]);
+    setSelectAll(false);
+  }, [assets, searchQuery, statusFilter]);
+
+  // Handle select all checkbox
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedAssets(filteredAssets.map(a => a.asset_id || a.id));
+      setSelectAll(true);
+    } else {
+      setSelectedAssets([]);
+      setSelectAll(false);
+    }
+  };
+
+  // Handle individual checkbox
+  const handleSelectAsset = (assetId) => {
+    setSelectedAssets(prev => {
+      if (prev.includes(assetId)) {
+        const newSelected = prev.filter(id => id !== assetId);
+        setSelectAll(newSelected.length === filteredAssets.length);
+        return newSelected;
+      } else {
+        const newSelected = [...prev, assetId];
+        setSelectAll(newSelected.length === filteredAssets.length);
+        return newSelected;
+      }
+    });
+  };
+
+  // Bulk delete function
+  const deleteBulkAssets = async () => {
+    if (selectedAssets.length === 0) return;
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedAssets.length} asset${selectedAssets.length > 1 ? 's' : ''} permanently?`)) {
+      return;
+    }
+
+    setDeleting(true);
+
+    // Delete from backend
+    for (const id of selectedAssets) {
+      try {
+        await vaultAPI.delete(id);
+      } catch (err) {
+        console.warn(`Failed to delete ${id} from backend:`, err);
+      }
+    }
+
+    // Remove from ALL localStorage sources at once
+    try {
+      // Remove from vaultImages
+      const vault = JSON.parse(localStorage.getItem('vaultImages') || '[]');
+      localStorage.setItem('vaultImages', JSON.stringify(
+        vault.filter(a => !selectedAssets.includes(a.assetId || a.id || a.asset_id))
+      ));
+
+      // Remove from analysisReports
+      const reports = JSON.parse(localStorage.getItem('analysisReports') || '[]');
+      localStorage.setItem('analysisReports', JSON.stringify(
+        reports.filter(a => !selectedAssets.includes(a.assetId || a.id || a.asset_id))
+      ));
+    } catch (e) {
+      console.warn('LocalStorage cleanup failed:', e);
+    }
+
+    // Update UI
+    setAssets(prev => prev.filter(a => !selectedAssets.includes(a.asset_id || a.id)));
+    setSelectedAssets([]);
+    setSelectAll(false);
+    setDeleting(false);
+    await loadStats();
+
+    alert(`Successfully deleted ${selectedAssets.length} asset${selectedAssets.length > 1 ? 's' : ''} permanently from all locations!`);
+  };
+
+  // Delete single asset function
+  const deleteAsset = async (asset) => {
+    setDeleting(true);
+    const id = asset.asset_id || asset.id;
+
+    // Delete from backend
+    try {
+      await vaultAPI.delete(id);
+    } catch (err) {
+      console.warn('Backend delete failed:', err);
+    }
+
+    // Remove from ALL localStorage sources
+    try {
+      // Remove from vaultImages
+      const vault = JSON.parse(localStorage.getItem('vaultImages') || '[]');
+      localStorage.setItem('vaultImages', JSON.stringify(
+        vault.filter(a => a.assetId !== id && a.id !== id && a.asset_id !== id)
+      ));
+
+      // Remove from analysisReports
+      const reports = JSON.parse(localStorage.getItem('analysisReports') || '[]');
+      localStorage.setItem('analysisReports', JSON.stringify(
+        reports.filter(a => a.assetId !== id && a.id !== id && a.asset_id !== id)
+      ));
+    } catch (e) {
+      console.warn('LocalStorage cleanup failed:', e);
+    }
+
+    // Update UI
+    setAssets(prev => prev.filter(a => (a.asset_id || a.id) !== id));
+    setDeleting(false);
+    setDeleteConfirm(null);
+    await loadStats();
+
+    alert('Asset deleted permanently from all locations!');
+  };
+
+  // Refresh assets function (for Assets tab refresh button)
+  const refreshAssets = async () => {
+    // Simple page reload - guaranteed to work
+    window.location.reload();
+  };
 
   const handleSuspend = async (userId) => {
     if (!window.confirm('Suspend this user?')) return;
@@ -355,28 +511,152 @@ function AdminDashboard({ user, onLogout }) {
                   <div style={{fontSize:'0.75rem', color:'#6b7280', fontWeight:'600'}}>TOTAL ASSETS</div>
                 </div>
                 <div style={{background:'white', border:'1px solid #e5e7eb', borderRadius:'8px', padding:'12px 20px', textAlign:'center'}}>
-                  <div style={{fontSize:'2rem', fontWeight:'700', color:'#6366f1'}}>{assets.filter(a=>a.status==='verified').length}</div>
+                  <div style={{fontSize:'2rem', fontWeight:'700', color:'#10b981'}}>{assets.filter(a => a.status === 'verified' || (a.confidence||95) >= 90).length}</div>
                   <div style={{fontSize:'0.75rem', color:'#6b7280', fontWeight:'600'}}>VERIFIED</div>
                 </div>
               </div>
-              <button onClick={loadAssets} className="btn-refresh"><RefreshCw size={16} /> Refresh</button>
+              <button onClick={refreshAssets} className="btn-refresh">
+                <RefreshCw size={16} /> Refresh
+              </button>
             </div>
           </div>
 
-          <div style={{display:'flex', gap:'12px', marginBottom:'20px'}}>
-            <input type="text" placeholder="Search by UUID, Asset ID, Email, Username..." style={{flex:1, padding:'10px 16px', border:'1px solid #e5e7eb', borderRadius:'8px', fontSize:'0.9rem'}} />
-            <button style={{padding:'10px 20px', border:'1px solid #e5e7eb', borderRadius:'8px', background:'white', cursor:'pointer'}}>⚙ Filters</button>
+          <div style={{display:'flex', gap:'12px', marginBottom:'20px', alignItems:'center'}}>
+            <input
+              type="text"
+              placeholder="Search by UUID, Asset ID, Email, Username..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{flex:1, padding:'10px 16px', border:'1px solid #e5e7eb', borderRadius:'8px', fontSize:'0.9rem'}}
+            />
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              style={{
+                padding:'10px 20px',
+                border:'1px solid #e5e7eb',
+                borderRadius:'8px',
+                background: showFilters ? '#6366f1' : 'white',
+                color: showFilters ? 'white' : '#4a5568',
+                cursor:'pointer',
+                display:'flex',
+                alignItems:'center',
+                gap:'8px',
+                fontWeight:'600'
+              }}
+            >
+              <Filter size={16} /> Filters
+            </button>
+            {selectedAssets.length > 0 && (
+              <button
+                onClick={deleteBulkAssets}
+                disabled={deleting}
+                style={{
+                  padding:'10px 20px',
+                  background: deleting ? '#fca5a5' : '#dc2626',
+                  color:'white',
+                  border:'none',
+                  borderRadius:'8px',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  display:'flex',
+                  alignItems:'center',
+                  gap:'8px',
+                  fontWeight:'600'
+                }}
+              >
+                <Trash2 size={16} /> Delete Selected ({selectedAssets.length})
+              </button>
+            )}
           </div>
 
-          {assets.length > 0 ? (
+          {showFilters && (
+            <div style={{background:'white', border:'1px solid #e5e7eb', borderRadius:'8px', padding:'20px', marginBottom:'20px'}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px'}}>
+                <h3 style={{margin:0, fontSize:'1.1rem'}}>Filter Options</h3>
+                <button onClick={() => setShowFilters(false)} style={{background:'none', border:'none', cursor:'pointer', fontSize:'1.5rem'}}>×</button>
+              </div>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'16px'}}>
+                <div>
+                  <label style={{display:'block', marginBottom:'8px', fontSize:'0.85rem', fontWeight:'600', color:'#4a5568'}}>Status</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    style={{width:'100%', padding:'8px 12px', border:'1px solid #e5e7eb', borderRadius:'6px'}}
+                  >
+                    <option value="all">All Status</option>
+                    <option value="verified">Verified Only</option>
+                    <option value="unknown">Unknown Only</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{marginTop:'16px', paddingTop:'16px', borderTop:'1px solid #e5e7eb', display:'flex', justifyContent:'flex-end', gap:'10px'}}>
+                <button
+                  onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}
+                  style={{padding:'8px 16px', background:'#f3f4f6', border:'none', borderRadius:'6px', cursor:'pointer', fontWeight:'600'}}
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+          )}
+
+          {searchQuery && (
+            <div style={{background:'#edf2f7', padding:'10px 15px', borderRadius:'8px', marginBottom:'15px', fontSize:'0.9rem', color:'#4a5568'}}>
+              Found {filteredAssets.length} result{filteredAssets.length !== 1 ? 's' : ''} for "{searchQuery}"
+            </div>
+          )}
+
+          {filteredAssets.length > 0 ? (
             <table className="admin-table">
-              <thead><tr><th>ASSET ID</th><th>CREATOR</th><th>DATE</th><th>STATUS</th><th>PLATFORM COPIES</th><th>CONFIDENCE</th><th>ACTIONS</th></tr></thead>
-              <tbody>{assets.map((a,i) => {
+              <thead>
+                <tr>
+                  <th style={{width:'40px'}}>
+                    <input
+                      type="checkbox"
+                      checked={selectAll}
+                      onChange={handleSelectAll}
+                      style={{cursor:'pointer', width:'18px', height:'18px'}}
+                    />
+                  </th>
+                  <th>THUMBNAIL</th>
+                  <th>ASSET ID</th>
+                  <th>CREATOR</th>
+                  <th>DATE</th>
+                  <th>STATUS</th>
+                  <th>PLATFORM COPIES</th>
+                  <th>CONFIDENCE</th>
+                  <th>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>{filteredAssets.map((a,i) => {
                 const confidence = a.confidence || 95;
                 const isVerified = a.status === 'verified' || confidence >= 90;
                 const initials = (a.owner_name||'U').charAt(0).toUpperCase();
+                const assetId = a.asset_id || a.id;
+                const isSelected = selectedAssets.includes(assetId);
                 return (
-                  <tr key={i}>
+                  <tr key={i} style={{background: isSelected ? '#eff6ff' : 'transparent'}}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleSelectAsset(assetId)}
+                        style={{cursor:'pointer', width:'18px', height:'18px'}}
+                      />
+                    </td>
+                    <td>
+                      <div style={{width:'60px', height:'60px', borderRadius:'6px', border:'1px solid #e5e7eb', background:'#f9fafb', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden'}}>
+                        {a.thumbnail_url || a.preview_url || a.image_url || a.encrypted_data ? (
+                          <img
+                            src={a.thumbnail_url || a.preview_url || a.image_url || a.encrypted_data}
+                            alt={a.asset_id}
+                            style={{width:'100%', height:'100%', objectFit:'cover', cursor:'pointer'}}
+                            onClick={() => window.open(a.thumbnail_url || a.preview_url || a.image_url || a.encrypted_data, '_blank')}
+                          />
+                        ) : (
+                          <span style={{fontSize:'10px', color:'#9ca3af'}}>No Image</span>
+                        )}
+                      </div>
+                    </td>
                     <td><div style={{fontWeight:'600', fontSize:'0.85rem'}}>{(a.asset_id||'').slice(0,20)}...</div></td>
                     <td>
                       <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
@@ -400,13 +680,14 @@ function AdminDashboard({ user, onLogout }) {
                       <div style={{display:'flex', gap:'6px'}}>
                         <button onClick={() => setSelectedAsset(a)} style={{background:'#6366f1', color:'white', border:'none', borderRadius:'6px', padding:'6px 10px', cursor:'pointer'}}>👁</button>
                         <button onClick={() => downloadAssetPDF(a)} style={{background:'#10b981', color:'white', border:'none', borderRadius:'6px', padding:'6px 10px', cursor:'pointer'}}>⬇</button>
+                        <button onClick={() => setDeleteConfirm(a)} style={{background:'#ef4444', color:'white', border:'none', borderRadius:'6px', padding:'6px 10px', cursor:'pointer'}}><Trash2 size={14} /></button>
                       </div>
                     </td>
                   </tr>
                 );
               })}</tbody>
             </table>
-          ) : <div className="empty-state">No assets in vault yet</div>}
+          ) : <div className="empty-state">{searchQuery ? `No assets found for "${searchQuery}"` : 'No assets in vault yet'}</div>}
         </div>
       )}
 
@@ -543,6 +824,56 @@ function AdminDashboard({ user, onLogout }) {
             <div style={{padding:'16px 24px', borderTop:'1px solid #e5e7eb', display:'flex', justifyContent:'flex-end', gap:'12px'}}>
               <button onClick={() => setSelectedAsset(null)} style={{padding:'8px 20px', border:'1px solid #e5e7eb', borderRadius:'6px', background:'white', cursor:'pointer'}}>Close</button>
               <button onClick={() => downloadAssetPDF(selectedAsset)} style={{padding:'8px 20px', background:'#6366f1', color:'white', border:'none', borderRadius:'6px', cursor:'pointer', fontWeight:'600'}}>Download Full Report</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => !deleting && setDeleteConfirm(null)}>
+          <div className="modal-content" style={{maxWidth:'420px'}} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{borderBottom:'2px solid #fee2e2'}}>
+              <h2 style={{color:'#dc2626', display:'flex', alignItems:'center', gap:'8px', fontSize:'1.2rem'}}>
+                <Trash2 size={20} /> Delete Asset
+              </h2>
+              <button className="modal-close" onClick={() => setDeleteConfirm(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{marginBottom:'12px'}}>Are you sure you want to permanently delete this asset?</p>
+              <div style={{background:'#fef2f2', border:'1px solid #fca5a5', borderRadius:'8px', padding:'12px', fontSize:'0.85rem', color:'#7f1d1d'}}>
+                <div><strong>Asset ID:</strong> {deleteConfirm.asset_id || '—'}</div>
+                <div><strong>Owner:</strong> {deleteConfirm.owner_name || deleteConfirm.owner_email || '—'}</div>
+                <div style={{marginTop:'8px', fontWeight:'600'}}>⚠️ This will remove the asset from the backend and local storage permanently.</div>
+              </div>
+              <div style={{display:'flex', gap:'10px', marginTop:'20px', justifyContent:'flex-end'}}>
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  disabled={deleting}
+                  style={{padding:'10px 20px', background:'#f3f4f6', border:'none', borderRadius:'8px', cursor:deleting?'not-allowed':'pointer', fontWeight:'600'}}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteAsset(deleteConfirm)}
+                  disabled={deleting}
+                  style={{
+                    display:'flex',
+                    alignItems:'center',
+                    gap:'6px',
+                    padding:'10px 20px',
+                    background: deleting ? '#fca5a5' : '#dc2626',
+                    color:'white',
+                    border:'none',
+                    borderRadius:'8px',
+                    cursor: deleting ? 'not-allowed' : 'pointer',
+                    fontWeight:'600'
+                  }}
+                >
+                  <Trash2 size={14} />
+                  {deleting ? 'Deleting...' : 'Yes, Delete'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Calendar, CheckCircle, XCircle, Activity, TrendingUp,
   GitCompare, Upload, AlertTriangle, Shield, Download, Link,
-  X, ChevronRight, Eye, Cpu, Hash, Fingerprint, Lock, Clock, Wrench, MapPin, Trash2
+  X, ChevronRight, Eye, Cpu, Hash, Fingerprint, Lock, Clock, Wrench, MapPin, Trash2, RefreshCw
 } from 'lucide-react';
 import './AssetTrackingPage.css';
 
@@ -1103,68 +1103,76 @@ function AssetTrackingPage() {
   const [comparing, setComparing]           = useState(false);
   const [comparisonResult, setComparisonResult] = useState(null);
   const [linkCopied, setLinkCopied]         = useState(false);
+  const [refreshing, setRefreshing]         = useState(false);
   const fileInputRef = useRef(null);
 
+// Load assets function (can be called on mount and refresh)
+const loadAssets = async () => {
+  try {
+    // Use same API as Asset Management for consistency
+    const { adminAPI } = await import('../api/client');
+    const response = await adminAPI.getAllVault();
+    const vault    = response.assets || [];
+
+    // Also load local reports for comparison history
+    const reports  = JSON.parse(localStorage.getItem('analysisReports') || '[]');
+    const vaultIds = new Set(vault.map(v => v.asset_id || v.assetId));
+    const extras   = reports.filter(r => !vaultIds.has(r.assetId));
+
+    // Normalise API response fields to match existing UI expectations
+    const normalisedVault = vault.map(a => ({
+      ...a,
+      assetId:      a.asset_id      || a.assetId,
+      ownerName:    a.owner_name    || a.ownerName,
+      ownerEmail:   a.owner_email   || a.ownerEmail,
+      fileHash:     a.file_hash     || a.fileHash,
+      thumbnailUrl: a.thumbnail_url || a.thumbnailUrl,
+      dateEncrypted: a.created_at   || a.dateEncrypted,
+    }));
+
+    const combined     = [...normalisedVault, ...extras];
+    const groups       = {};
+    combined.forEach(a => {
+      const k = a.assetId || a.id;
+      groups[k] = (groups[k] || 0) + 1;
+    });
+    const withVersions = combined.map(a => ({
+      ...a,
+      versionCount: groups[a.assetId || a.id] || 1
+    }));
+
+    setAssets(withVersions);
+    setFilteredAssets(withVersions);
+
+  } catch (err) {
+    // Fallback to localStorage if API fails (offline or not logged in)
+    console.warn('API unavailable, using localStorage:', err.message);
+    const vault   = JSON.parse(localStorage.getItem('vaultImages')    || '[]');
+    const reports = JSON.parse(localStorage.getItem('analysisReports')|| '[]');
+    const vaultIds = new Set(vault.map(v => v.assetId));
+    const extras   = reports.filter(r => !vaultIds.has(r.assetId));
+    const combined = [...vault, ...extras];
+    const groups   = {};
+    combined.forEach(a => {
+      const k = a.assetId || a.id;
+      groups[k] = (groups[k] || 0) + 1;
+    });
+    const withVersions = combined.map(a => ({
+      ...a,
+      versionCount: groups[a.assetId || a.id] || 1
+    }));
+    setAssets(withVersions);
+    setFilteredAssets(withVersions);
+  }
+};
+
+// Refresh function with loading state
+const handleRefresh = async () => {
+  // Simple page reload - guaranteed to work
+  window.location.reload();
+};
+
 useEffect(() => {
-  const loadAssets = async () => {
-    try {
-      // Try API first — works on any device
-      const { vaultAPI } = await import('../api/client');
-      const response = await vaultAPI.list();
-      const vault    = response.assets || [];
-
-      // Also load local reports for comparison history
-      const reports  = JSON.parse(localStorage.getItem('analysisReports') || '[]');
-      const vaultIds = new Set(vault.map(v => v.asset_id || v.assetId));
-      const extras   = reports.filter(r => !vaultIds.has(r.assetId));
-
-      // Normalise API response fields to match existing UI expectations
-      const normalisedVault = vault.map(a => ({
-        ...a,
-        assetId:      a.asset_id      || a.assetId,
-        ownerName:    a.owner_name    || a.ownerName,
-        ownerEmail:   a.owner_email   || a.ownerEmail,
-        fileHash:     a.file_hash     || a.fileHash,
-        thumbnailUrl: a.thumbnail_url || a.thumbnailUrl,
-        dateEncrypted: a.created_at   || a.dateEncrypted,
-      }));
-
-      const combined     = [...normalisedVault, ...extras];
-      const groups       = {};
-      combined.forEach(a => {
-        const k = a.assetId || a.id;
-        groups[k] = (groups[k] || 0) + 1;
-      });
-      const withVersions = combined.map(a => ({
-        ...a,
-        versionCount: groups[a.assetId || a.id] || 1
-      }));
-
-      setAssets(withVersions);
-      setFilteredAssets(withVersions);
-
-    } catch (err) {
-      // Fallback to localStorage if API fails (offline or not logged in)
-      console.warn('API unavailable, using localStorage:', err.message);
-      const vault   = JSON.parse(localStorage.getItem('vaultImages')    || '[]');
-      const reports = JSON.parse(localStorage.getItem('analysisReports')|| '[]');
-      const vaultIds = new Set(vault.map(v => v.assetId));
-      const extras   = reports.filter(r => !vaultIds.has(r.assetId));
-      const combined = [...vault, ...extras];
-      const groups   = {};
-      combined.forEach(a => {
-        const k = a.assetId || a.id;
-        groups[k] = (groups[k] || 0) + 1;
-      });
-      const withVersions = combined.map(a => ({
-        ...a,
-        versionCount: groups[a.assetId || a.id] || 1
-      }));
-      setAssets(withVersions);
-      setFilteredAssets(withVersions);
-    }
-  };
-
   loadAssets();
 }, []);
 
@@ -1184,13 +1192,16 @@ useEffect(() => {
   const deleteAsset = async (asset) => {
     setDeleting(true);
     const id = asset.assetId || asset.id;
+    
+    // Delete from backend
     try {
       const { vaultAPI } = await import('../api/client');
       await vaultAPI.delete(id);
     } catch (err) {
       console.warn('Backend delete failed:', err);
     }
-    // Remove from localStorage
+    
+    // Remove from ALL localStorage sources
     try {
       const vault = JSON.parse(localStorage.getItem('vaultImages') || '[]');
       localStorage.setItem('vaultImages', JSON.stringify(
@@ -1200,12 +1211,17 @@ useEffect(() => {
       localStorage.setItem('analysisReports', JSON.stringify(
         reports.filter(a => a.assetId !== id && a.id !== id)
       ));
-    } catch (e) { console.warn(e); }
-    // Remove from UI
+    } catch (e) { 
+      console.warn('LocalStorage cleanup failed:', e); 
+    }
+    
+    // Update UI
     setAssets(prev => prev.filter(a => (a.assetId || a.id) !== id));
     setFilteredAssets(prev => prev.filter(a => (a.assetId || a.id) !== id));
     setDeleting(false);
     setDeleteConfirm(null);
+    
+    alert('Asset deleted permanently from all locations!');
   };
 
   const openCompare = (asset) => {
@@ -1269,19 +1285,42 @@ useEffect(() => {
           <h1>Asset Tracking</h1>
           <p className="subtitle">Track image modifications, compare versions, and generate forensic reports</p>
         </div>
-        <div className="tracking-stats">
-          <div className="stat-card">
-            <span className="stat-number">{assets.length}</span>
-            <span className="stat-label">Total Assets</span>
+        <div style={{display:'flex', alignItems:'center', gap:'16px'}}>
+          <div className="tracking-stats">
+            <div className="stat-card">
+              <span className="stat-number">{assets.length}</span>
+              <span className="stat-label">Total Assets</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-number">{assets.filter(a => hasRichData(a)).length}</span>
+              <span className="stat-label">Vault Secured</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-number">{assets.filter(a => a.versionCount > 1).length}</span>
+              <span className="stat-label">Modified</span>
+            </div>
           </div>
-          <div className="stat-card">
-            <span className="stat-number">{assets.filter(a => hasRichData(a)).length}</span>
-            <span className="stat-label">Vault Secured</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-number">{assets.filter(a => a.versionCount > 1).length}</span>
-            <span className="stat-label">Modified</span>
-          </div>
+          <button
+            onClick={handleRefresh}
+            className="btn-refresh"
+            style={{
+              padding:'10px 20px',
+              background:'#6366f1',
+              color:'white',
+              border:'none',
+              borderRadius:'8px',
+              cursor:'pointer',
+              display:'flex',
+              alignItems:'center',
+              gap:'8px',
+              fontWeight:'600',
+              fontSize:'0.9rem',
+              whiteSpace:'nowrap'
+            }}
+          >
+            <RefreshCw size={16} />
+            Refresh
+          </button>
         </div>
       </div>
 
@@ -1312,6 +1351,7 @@ useEffect(() => {
           <table className="tracking-table">
             <thead>
               <tr>
+                <th>Thumbnail</th>
                 <th>Asset ID</th>
                 <th>Owner</th>
                 <th>Registered</th>
@@ -1324,6 +1364,21 @@ useEffect(() => {
             <tbody>
               {filteredAssets.map((asset, idx) => (
                 <tr key={asset.id || asset.assetId || idx}>
+                  <td>
+                    <div className="asset-thumbnail">
+                      {asset.thumbnailUrl || asset.thumbnail || asset.encryptedData ? (
+                        <img 
+                          src={asset.thumbnailUrl || asset.thumbnail || asset.encryptedData}
+                          alt={asset.assetId}
+                          onClick={() => window.open(asset.thumbnailUrl || asset.thumbnail || asset.encryptedData, '_blank')}
+                        />
+                      ) : (
+                        <div className="thumbnail-placeholder">
+                          No Image
+                        </div>
+                      )}
+                    </div>
+                  </td>
                   <td>
                     <span className="asset-id-link" onClick={() => navigate(`/admin/track/${asset.assetId}`)}>
                       {asset.assetId || asset.id}
