@@ -21,6 +21,19 @@ const checkBiometricAvailable = async () => {
 const bufToBase64 = (buf) =>
   btoa(String.fromCharCode(...new Uint8Array(buf)));
 
+// ─── Fetch with auto-retry (handles Render cold start) ──────────────────────
+const fetchWithRetry = async (url, options, retries = 3, delayMs = 4000) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+};
+
 // ─── Eye icon toggle helper ──────────────────────────────────────────────────
 const EyeIcon = ({ show, onToggle }) => (
   <button
@@ -83,7 +96,7 @@ function Register() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('https://pinit-backend.onrender.com/auth/register', {
+      const res = await fetchWithRetry('https://pinit-backend.onrender.com/auth/register', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body   : JSON.stringify({
@@ -100,7 +113,7 @@ function Register() {
       setBiometricSupported(available);
       setStep(2);
     } catch {
-      setError('Cannot connect to server. Please make sure the backend is running.');
+      setError('Cannot connect to server. Please wait 30 seconds and try again (server may be waking up).');
     } finally {
       setLoading(false);
     }
@@ -113,7 +126,7 @@ function Register() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('https://pinit-backend.onrender.com/auth/verify-otp', {
+      const res = await fetchWithRetry('https://pinit-backend.onrender.com/auth/verify-otp', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body   : JSON.stringify({ email: formData.email, code: otp })
@@ -137,14 +150,19 @@ function Register() {
   const handleResendOTP = async () => {
     setError('');
     try {
-      await fetch('https://pinit-backend.onrender.com/auth/resend-otp', {
+      const res = await fetchWithRetry('https://pinit-backend.onrender.com/auth/resend-otp', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body   : JSON.stringify({ email: formData.email })
       });
-      alert('New OTP sent to ' + formData.email);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.detail || 'Could not resend OTP. Please try again.');
+      } else {
+        alert('✅ New OTP sent to ' + formData.email);
+      }
     } catch {
-      setError('Could not resend OTP.');
+      setError('Cannot connect to server. Please try again.');
     }
   };
 
