@@ -147,6 +147,7 @@
 
 .panel-body { padding: 28px 32px; }
 
+.report-actions { display: flex; gap: 12px; }
 .original-info-strip {
   display: flex; align-items: center; gap: 12px;
   background: #f0fff4; border: 1px solid #9ae6b4; border-radius: 10px;
@@ -274,7 +275,7 @@
 .text-success { color: #276749 !important; font-weight: 600; }
 
 /* Report actions */
-.report-actions { display: flex; gap: 12px; }
+
 .btn-action {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
   padding: 12px 20px; border: none; border-radius: 10px;
