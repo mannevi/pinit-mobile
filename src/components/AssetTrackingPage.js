@@ -1034,8 +1034,6 @@ function AssetTrackingPage() {
   const [comparing,          setComparing]          = useState(false);
   const [comparisonResult,   setComparisonResult]   = useState(null);
   const [linkCopied,         setLinkCopied]         = useState(false);
-  const [comparePublicToken, setComparePublicToken] = useState(null);
-  const [savedToBackend,     setSavedToBackend]     = useState(false);
   const fileInputRef = useRef(null);
 
   // FIX: Group by fileHash not assetId — assetId format differs between API + localStorage
@@ -1126,21 +1124,19 @@ function AssetTrackingPage() {
   const openCompare = (asset) => {
     setCompareAsset(asset); setCompareFile(null); setComparePreview(null);
     setComparisonResult(null); setLinkCopied(false);
-    setComparePublicToken(null); setSavedToBackend(false);
   };
-  const closeCompare = () => { setCompareAsset(null); setCompareFile(null); setComparePreview(null); setComparisonResult(null); setComparePublicToken(null); setSavedToBackend(false); };
+  const closeCompare = () => { setCompareAsset(null); setCompareFile(null); setComparePreview(null); setComparisonResult(null); };
   const handleCompareFile = (file) => {
     if (!file || !file.type.startsWith('image/')) return;
-    setCompareFile(file); setComparisonResult(null); setComparePublicToken(null); setSavedToBackend(false);
+    setCompareFile(file); setComparisonResult(null);
     const reader = new FileReader();
     reader.onload = e => setComparePreview(e.target.result);
     reader.readAsDataURL(file);
   };
 
-  // FIX: Now saves to backend — creates audit record + public_token for sharing
   const runCompare = async () => {
     if (!compareFile || !compareAsset) return;
-    setComparing(true); setComparePublicToken(null); setSavedToBackend(false);
+    setComparing(true);
     const img = new Image();
     img.onload = async () => {
       const canvas = document.createElement('canvas');
@@ -1149,10 +1145,10 @@ function AssetTrackingPage() {
       const result = await runComparison(canvas, compareFile, compareAsset);
       setComparisonResult(result); setComparing(false);
 
-      // Save to backend — generates public_token for shareable link
+      // Save to backend for audit trail (fire-and-forget — doesn't affect UI)
       try {
         const { compareAPI } = await import('../api/client');
-        const saveRes = await compareAPI.save({
+        await compareAPI.save({
           asset_id:              compareAsset.assetId || compareAsset.asset_id,
           is_tampered:           result.isTampered,
           confidence:            result.confidence,
@@ -1166,27 +1162,43 @@ function AssetTrackingPage() {
           original_capture_time: result.originalCaptureTime || null,
           modified_file_time:    result.modifiedFileTime ? new Date(result.modifiedFileTime).toISOString() : null,
         });
-        if (saveRes?.public_token) setComparePublicToken(saveRes.public_token);
-        setSavedToBackend(true);
       } catch (err) {
         console.warn('Could not save comparison to backend:', err.message);
-        setSavedToBackend(false);
       }
     };
     img.src = comparePreview;
   };
 
-  // FIX: Use backend public_token instead of encoding full payload in URL.
-  // Old code exceeded URL limits on complex reports (2000+ chars).
+  // Uses the existing /public/verify?data= route (PublicVerifyPage) — no new files needed.
   const handleCopyLink = () => {
     if (!compareAsset || !comparisonResult) return;
-    let url;
-    if (comparePublicToken) {
-      url = `${window.location.origin}/compare/public/${comparePublicToken}`;
-    } else {
-      const minimal = { assetId:compareAsset.assetId, verdict:comparisonResult.verdict3tier, confidence:comparisonResult.confidence, timestamp:comparisonResult.timestamp };
-      url = `${window.location.origin}/public/verify?data=${btoa(unescape(encodeURIComponent(JSON.stringify(minimal))))}`;
-    }
+    const payload = {
+      v:                   1,
+      assetId:             compareAsset.assetId || compareAsset.id,
+      certId:              compareAsset.certificateId,
+      owner:               compareAsset.ownerName || compareAsset.userId,
+      registered:          compareAsset.dateEncrypted || compareAsset.timestamp,
+      origResolution:      compareAsset.resolution || compareAsset.assetResolution,
+      origHash:            compareAsset.fileHash || compareAsset.file_hash,
+      origFingerprint:     compareAsset.visualFingerprint || compareAsset.visual_fingerprint,
+      blockchainAnchor:    compareAsset.blockchainAnchor,
+      originalCaptureTime: comparisonResult.originalCaptureTime,
+      modifiedFileTime:    comparisonResult.modifiedFileTime,
+      editingTool:         comparisonResult.editingTool,
+      comparedAt:          comparisonResult.timestamp,
+      confidence:          comparisonResult.confidence,
+      visualVerdict:       comparisonResult.visualVerdict,
+      isTampered:          comparisonResult.isTampered,
+      uploadedResolution:  comparisonResult.uploadedResolution,
+      uploadedSize:        comparisonResult.uploadedSize,
+      uploadedFingerprint: comparisonResult.uploadedPHash,
+      pHashSim:            comparisonResult.pHashSim,
+      pixelChangedPct:     comparisonResult.pixelAnalysis?.changedPct,
+      hotRegions:          comparisonResult.pixelAnalysis?.hotRegions,
+      changes:             comparisonResult.changes,
+    };
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    const url     = `${window.location.origin}/public/verify?data=${encoded}`;
     navigator.clipboard.writeText(url).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 3000); });
   };
 
@@ -1458,14 +1470,16 @@ function AssetTrackingPage() {
                       </div>
                     )}
 
-                    {/* Saved confirmation */}
-                    {savedToBackend && (
-                      <div style={{background:'#f0fff4',border:'1px solid #9ae6b4',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:12,color:'#276749'}}>
-                        ✓ Comparison saved to audit log — shareable link is active.
-                      </div>
-                    )}
-
-                    {/* Similarity bar */}
+                    {/* Actions */}
+                    <div className="report-actions">
+                      <button className={`btn-action copy-link ${linkCopied?'copied':''}`} onClick={handleCopyLink}>
+                        <Link size={16}/>
+                        {linkCopied ? '✓ Link Copied!' : 'Copy Verification Link'}
+                      </button>
+                      <button className="btn-action download-report" onClick={handleDownload}>
+                        <Download size={16}/> Download HTML Report
+                      </button>
+                    </div>
                     <div className="sim-bar-wrap">
                       <div className="sim-bar-track">
                         <div className={`sim-bar-fill ${comparisonResult.confidence>=80?'high':comparisonResult.confidence>=50?'mid':'low'}`}
@@ -1551,17 +1565,6 @@ function AssetTrackingPage() {
                         <div className="data-row"><span>pHash Similarity</span><span>{comparisonResult.pHashSim!==null?`${comparisonResult.pHashSim}%`:'—'}</span></div>
                         <div className="data-row"><span>Histogram</span><span>{comparisonResult.histSim!==null?`${comparisonResult.histSim}%`:'—'}</span></div>
                       </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="report-actions">
-                      <button className={`btn-action copy-link ${linkCopied?'copied':''}`} onClick={handleCopyLink}>
-                        <Link size={16}/>
-                        {linkCopied?'✓ Link Copied!':comparePublicToken?'Copy Shareable Link':'Copy Link (no backend token)'}
-                      </button>
-                      <button className="btn-action download-report" onClick={handleDownload}>
-                        <Download size={16}/> Download HTML Report
-                      </button>
                     </div>
                   </div>
                 );
