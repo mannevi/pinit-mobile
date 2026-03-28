@@ -1470,16 +1470,7 @@ function AssetTrackingPage() {
                       </div>
                     )}
 
-                    {/* Actions */}
-                    <div className="report-actions">
-                      <button className={`btn-action copy-link ${linkCopied?'copied':''}`} onClick={handleCopyLink}>
-                        <Link size={16}/>
-                        {linkCopied ? '✓ Link Copied!' : 'Copy Verification Link'}
-                      </button>
-                      <button className="btn-action download-report" onClick={handleDownload}>
-                        <Download size={16}/> Download HTML Report
-                      </button>
-                    </div>
+                    {/* Actions moved to bottom of results */}
                     <div className="sim-bar-wrap">
                       <div className="sim-bar-track">
                         <div className={`sim-bar-fill ${comparisonResult.confidence>=80?'high':comparisonResult.confidence>=50?'mid':'low'}`}
@@ -1565,6 +1556,17 @@ function AssetTrackingPage() {
                         <div className="data-row"><span>pHash Similarity</span><span>{comparisonResult.pHashSim!==null?`${comparisonResult.pHashSim}%`:'—'}</span></div>
                         <div className="data-row"><span>Histogram</span><span>{comparisonResult.histSim!==null?`${comparisonResult.histSim}%`:'—'}</span></div>
                       </div>
+                    </div>
+
+                    {/* Actions — at the very bottom of results */}
+                    <div className="report-actions">
+                      <button className={`btn-action copy-link ${linkCopied?'copied':''}`} onClick={handleCopyLink}>
+                        <Link size={16}/>
+                        {linkCopied ? '✓ Link Copied!' : 'Copy Verification Link'}
+                      </button>
+                      <button className="btn-action download-report" onClick={handleDownload}>
+                        <Download size={16}/> Download HTML Report
+                      </button>
                     </div>
                   </div>
                 );
