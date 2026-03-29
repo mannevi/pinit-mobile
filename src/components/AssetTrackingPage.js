@@ -1301,6 +1301,90 @@ function AssetTrackingPage() {
 
   const hasRichData = (a) => !!(a.fileHash||a.file_hash||a.visualFingerprint||a.visual_fingerprint||a.certificateId||a.certificate_id);
 
+  // ── Conclusion summary — structured plain-English block for each result ──────
+  const buildConclusionSummary = (result, asset) => {
+    if (!result) return null;
+    const { verdict3tier, confidence, uuidCheck, changes, pHashSim, histSim, pixelAnalysis, editingTool } = result;
+
+    const hasCrop       = changes.some(c => c.category === 'Cropping' || c.category === 'Crop/Resize');
+    const hasResize     = changes.some(c => c.category === 'Resolution');
+    const hasRotation   = changes.some(c => c.category === 'Rotation');
+    const hasCompression= changes.some(c => c.category === 'Compression');
+    const hasColour     = changes.some(c => c.category === 'Colour');
+    const hasFormat     = changes.some(c => c.category === 'Format');
+    const hasPixelEdit  = changes.some(c => c.category === 'Pixel Edit' && c.type !== 'info');
+    const hasHotRegion  = changes.some(c => c.category === 'Region Edit' && c.type === 'danger');
+    const uuidFound     = uuidCheck?.found;
+    const uuidMatches   = uuidCheck?.matchesOwner;
+    const uuidIntegrity = uuidFound
+      ? (uuidMatches === true  ? 'Confirmed — ownership verified'
+       : uuidMatches === false ? 'Compromised — different owner detected'
+       : 'Detected — ownership unverifiable (no user_id in vault)')
+      : hasCrop || hasResize
+        ? 'Not recoverable — UUID survives crops but embedded resolution mismatch detected; lossless tools may have re-encoded'
+        : 'Compromised — UUID destroyed by pixel-level editing (JPEG re-export, brightness, or filter applied)';
+
+    // Detected modifications list
+    const detectedMods = [];
+    if (hasCrop)        detectedMods.push('Cropping — aspect ratio / frame changed');
+    if (hasResize)      detectedMods.push('Resize — dimensions scaled');
+    if (hasRotation)    detectedMods.push('Rotation — image orientation changed');
+    if (hasCompression) detectedMods.push('Compression — file size significantly reduced');
+    if (hasFormat)      detectedMods.push('Format change — file type converted (e.g. PNG → JPEG)');
+    if (hasColour)      detectedMods.push('Colour/brightness adjustment — pixel-level edit detected');
+    if (hasPixelEdit)   detectedMods.push('Pixel edits — content-level changes detected');
+    if (hasHotRegion)   detectedMods.push('Localised pixel manipulation — specific regions heavily altered');
+    if (editingTool && !editingTool.startsWith('No metadata')) detectedMods.push(`Editing software: ${editingTool}`);
+
+    // Visual analysis bullets
+    const visualItems = [];
+    if (pHashSim !== null) {
+      if (pHashSim >= 95)      visualItems.push(`Near-identical visual match (pHash ${pHashSim}%)`);
+      else if (pHashSim >= 80) visualItems.push(`High visual similarity (pHash ${pHashSim}%) — same content, minor changes`);
+      else if (pHashSim >= 60) visualItems.push(`Partial visual match (pHash ${pHashSim}%) — significant region or content changes`);
+      else if (pHashSim >= 40) visualItems.push(`Low visual match (pHash ${pHashSim}%) — heavily modified or cropped`);
+      else                     visualItems.push(`Very low visual similarity (pHash ${pHashSim}%) — likely a different image`);
+    }
+    if (hasCrop)   visualItems.push('Missing image regions identified — partial frame submitted');
+    if (hasCrop)   visualItems.push('Feature matches limited to overlapping areas only');
+    if (histSim !== null && histSim >= 70) visualItems.push(`Colour profile consistent with original (histogram ${histSim}%)`);
+    if (histSim !== null && histSim <  70) visualItems.push(`Colour profile shift detected (histogram ${histSim}%)`);
+
+    // Conclusion text
+    let conclusion = '';
+    let recommendation = '';
+    if (verdict3tier === 'CLEAN') {
+      conclusion = 'Image matches the registered vault original within normal encoding tolerances. No evidence of modification detected.';
+      recommendation = 'No action required — image is authentic.';
+    } else if (verdict3tier === 'MODIFIED') {
+      if (hasCrop && !hasColour && !hasPixelEdit) {
+        conclusion = 'This image is likely a cropped version of the registered asset. Ownership cannot be confirmed via UUID due to the geometric change, but visual similarity and embedded metadata strongly suggest derivation from the original.';
+        recommendation = 'Manual review recommended — cropping alone is not evidence of malicious intent.';
+      } else if (hasColour || hasCompression || hasFormat) {
+        conclusion = 'Technical changes were applied to this image after registration. These changes are consistent with normal re-export, social media processing, or colour adjustment — not necessarily malicious.';
+        recommendation = 'Manual review recommended — changes may be benign but represent a modified derivative.';
+      } else {
+        conclusion = 'This image is a modified derivative of the registered asset. Technical changes have been detected but no strong evidence of malicious tampering.';
+        recommendation = 'Manual review recommended.';
+      }
+    } else { // TAMPERED
+      if (uuidMatches === false) {
+        conclusion = 'A PINIT ownership signature was found but it belongs to a different registered user. This is strong forensic evidence of asset theft or forgery.';
+        recommendation = 'Escalate immediately — potential copyright infringement or asset forgery detected.';
+      } else if (hasHotRegion) {
+        conclusion = 'Localised pixel-level manipulation detected in specific image regions. This pattern is consistent with content removal, object replacement, or watermark tampering.';
+        recommendation = 'Escalate — strong evidence of deliberate content alteration.';
+      } else {
+        conclusion = 'Strong forensic signals indicate deliberate intentional alteration of this image. Multiple tamper indicators are present simultaneously.';
+        recommendation = 'Escalate — this image shows clear signs of tampering.';
+      }
+    }
+
+    const confidenceLabel = confidence >= 80 ? 'High' : confidence >= 50 ? 'Moderate' : 'Low';
+
+    return { uuidIntegrity, uuidFound, detectedMods, visualItems, conclusion, recommendation, confidenceLabel };
+  };
+
   const verdictBanner = (v3) => {
     if (v3 === 'TAMPERED') return { cls:'tampered', icon:<AlertTriangle size={28}/>, label:'🚨 TAMPERED — Strong evidence of deliberate alteration', sub:'This image shows clear signs of intentional modification.' };
     if (v3 === 'MODIFIED') {
@@ -1600,6 +1684,60 @@ function AssetTrackingPage() {
                           <div className="fmi-value">{comparisonResult.pHashSim!==null?`${comparisonResult.pHashSim}% similarity`:'No stored fingerprint'}</div></div>
                       </div>
                     </div>
+
+                    {/* ── Conclusion Summary Block ──────────────────────────── */}
+                    {(() => {
+                      const cs = buildConclusionSummary(comparisonResult, compareAsset);
+                      if (!cs) return null;
+                      const borderColor = comparisonResult.verdict3tier==='TAMPERED' ? '#fc8181'
+                        : comparisonResult.verdict3tier==='MODIFIED' ? '#f6ad55' : '#68d391';
+                      const bgColor = comparisonResult.verdict3tier==='TAMPERED' ? '#fff5f5'
+                        : comparisonResult.verdict3tier==='MODIFIED' ? '#fffaf0' : '#f0fff4';
+                      return (
+                        <div style={{border:`1.5px solid ${borderColor}`,borderRadius:10,background:bgColor,padding:'16px 20px',marginBottom:16,fontSize:13}}>
+
+                          {/* UUID Analysis */}
+                          <div style={{marginBottom:12}}>
+                            <div style={{fontWeight:700,color:'#2d3748',marginBottom:6,fontSize:12,textTransform:'uppercase',letterSpacing:'.5px'}}>🔐 UUID Analysis</div>
+                            <div style={{display:'flex',flexDirection:'column',gap:4,paddingLeft:8}}>
+                              <div><span style={{color:'#718096'}}>Original Asset:</span> <span style={{fontWeight:600,color:'#276749'}}>UUID registered in vault</span></div>
+                              <div><span style={{color:'#718096'}}>Submitted Image:</span> <span style={{fontWeight:600,color:cs.uuidFound?'#276749':'#c05621'}}>{cs.uuidFound ? 'UUID recovered' : 'UUID not found in submitted image'}</span></div>
+                              <div><span style={{color:'#718096'}}>Integrity:</span> <span style={{fontWeight:600,color:cs.uuidFound&&comparisonResult.uuidCheck?.matchesOwner===true?'#276749':'#c05621'}}>{cs.uuidIntegrity}</span></div>
+                            </div>
+                          </div>
+
+                          {/* Visual Analysis */}
+                          {cs.visualItems.length > 0 && (
+                            <div style={{marginBottom:12}}>
+                              <div style={{fontWeight:700,color:'#2d3748',marginBottom:6,fontSize:12,textTransform:'uppercase',letterSpacing:'.5px'}}>👁 Visual Analysis</div>
+                              <ul style={{margin:0,paddingLeft:20,display:'flex',flexDirection:'column',gap:3}}>
+                                {cs.visualItems.map((v,i) => <li key={i} style={{color:'#4a5568'}}>{v}</li>)}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Detected Modifications */}
+                          {cs.detectedMods.length > 0 && (
+                            <div style={{marginBottom:12}}>
+                              <div style={{fontWeight:700,color:'#2d3748',marginBottom:6,fontSize:12,textTransform:'uppercase',letterSpacing:'.5px'}}>🔧 Detected Modifications</div>
+                              <ul style={{margin:0,paddingLeft:20,display:'flex',flexDirection:'column',gap:3}}>
+                                {cs.detectedMods.map((m,i) => <li key={i} style={{color:'#4a5568'}}>{m}</li>)}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Conclusion + Confidence + Recommendation */}
+                          <div style={{borderTop:`1px solid ${borderColor}`,paddingTop:12,marginTop:4}}>
+                            <div style={{fontWeight:700,color:'#2d3748',marginBottom:6,fontSize:12,textTransform:'uppercase',letterSpacing:'.5px'}}>📋 Conclusion</div>
+                            <p style={{margin:'0 0 8px',color:'#2d3748',lineHeight:1.6}}>{cs.conclusion}</p>
+                            <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+                              <div><span style={{color:'#718096'}}>Confidence: </span><span style={{fontWeight:700,color:cs.confidenceLabel==='High'?'#276749':cs.confidenceLabel==='Moderate'?'#c05621':'#c53030'}}>{cs.confidenceLabel}</span></div>
+                              <div><span style={{color:'#718096'}}>Recommendation: </span><span style={{fontWeight:600,color:'#2d3748'}}>{cs.recommendation}</span></div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Changes + heatmap */}
                     <div className="changes-section">
