@@ -748,8 +748,11 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
           text:`Embedded original resolution (${uuidCheck.originalResolution}) differs from current (${uploadedW}×${uploadedH}) — image was resized or cropped after embedding.` });
     }
   } else {
-    changes.push({ type:'danger', category:'Ownership',
-      text:'No PINIT ownership signature found. UUID embedding survives geometric cropping but is destroyed by brightness, contrast, or any pixel-level adjustment — its absence is evidence of pixel manipulation after embedding.' });
+    // WARNING (not danger): missing UUID means pixel-level edits occurred after embedding,
+    // or the image was never registered. This alone is not sufficient for TAMPERED —
+    // JPEG re-export, WhatsApp, brightness adjustments all destroy the UUID legitimately.
+    changes.push({ type:'warning', category:'Ownership',
+      text:'No PINIT ownership signature found. UUID is destroyed by any pixel-level adjustment (JPEG re-export, brightness, contrast, social media re-encoding) — its absence confirms changes were made after embedding but is not proof of malicious tampering.' });
   }
 
   // ── STEP D: pHash visual fingerprint (primary visual signal) ─────────────────
@@ -793,9 +796,11 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
   }
 
   // H2: Aspect ratio / crop
+  // WARNING (not danger): cropping is a geometric transform, not malicious tampering.
+  // TC-03 (lossless crop) must return MODIFIED. TAMPERED requires pixel-level manipulation.
   if (origW > 0 && Math.abs((uploadedW/uploadedH) - (origW/origH)) > 0.08)
-    changes.push({ type:'danger', category:'Cropping',
-      text:`Aspect ratio changed (${(origW/origH).toFixed(2)} → ${(uploadedW/uploadedH).toFixed(2)}) — image was cropped.` });
+    changes.push({ type:'warning', category:'Cropping',
+      text:`Aspect ratio changed (${(origW/origH).toFixed(2)} → ${(uploadedW/uploadedH).toFixed(2)}) — image was cropped after embedding.` });
 
   // H3: File size
   // FIX: fileSize stored as "245.50 KB" string. Old code divided by 1024 again → NaN.
@@ -858,9 +863,9 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
     if (detectedRotation && detectedRotation !== 0)
       changes.push({ type:'warning', category:'Rotation',
         text:`Image was rotated ${detectedRotation}° — best pHash match found at that rotation (similarity ${pSim}%).` });
-    if      (pSim < 40) { changes.push({ type:'danger',  category:'Visual', text:`Completely different image — perceptual similarity only ${pSim}%.` }); visualVerdict='Completely Different'; }
-    else if (pSim < 60) { changes.push({ type:'danger',  category:'Visual', text:`High visual divergence — perceptual similarity ${pSim}%.` });        visualVerdict='Heavily Modified'; }
-    else if (pSim < 75) { changes.push({ type:'warning', category:'Visual', text:`Significant visual changes — perceptual similarity ${pSim}%.` });     visualVerdict='Moderately Modified'; }
+    if      (pSim < 40) { changes.push({ type:'danger',  category:'Visual', text:`Completely different image — perceptual similarity only ${pSim}%. Almost certainly a different image entirely.` }); visualVerdict='Completely Different'; }
+    else if (pSim < 55) { changes.push({ type:'warning', category:'Visual', text:`High visual divergence — perceptual similarity ${pSim}%. Significant content changes detected (heavy crop, filter, or partial replacement).` }); visualVerdict='Heavily Modified'; }
+    else if (pSim < 70) { changes.push({ type:'warning', category:'Visual', text:`Significant visual changes — perceptual similarity ${pSim}%.` });     visualVerdict='Moderately Modified'; }
     else if (pSim < 90) { changes.push({ type:'warning', category:'Visual', text:`Noticeable visual changes — perceptual similarity ${pSim}%.` });      visualVerdict='Lightly Modified'; }
     else                { visualVerdict = pSim >= 99 ? 'Near-Identical' : 'High Similarity'; }
   } else if (histSim !== null && histSim < 40) {
@@ -868,32 +873,43 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
     visualVerdict = 'Likely Different';
   }
 
-  if (histSim !== null && pSim !== null && histSim < 40 && pSim < 60)
+  if (histSim !== null && pSim !== null && histSim < 40 && pSim < 55)
     changes.push({ type:'danger', category:'Colour Profile', text:`Colour histogram very different (${histSim}%) — confirms different image content.` });
 
-  if (editingTool)
-    changes.push({ type:'info', category:'Tool', text:`Editing software detected in file metadata: ${editingTool}.` });
+  if (editingTool) {
+    // If metadata is absent AND UUID was found (proving the asset was originally registered
+    // with embedded data), treat it as a warning — metadata was likely stripped (TC-19).
+    // For all other editing tool detections keep as info.
+    const isNoMeta   = editingTool.startsWith('No metadata recorded');
+    const toolType   = (isNoMeta && uuidCheck.found) ? 'warning' : 'info';
+    const toolText   = isNoMeta && uuidCheck.found
+      ? `Metadata stripped — no software signature recorded. Original asset had embedded ownership data; stripping metadata is a reportable change.`
+      : `Editing software detected in file metadata: ${editingTool}.`;
+    changes.push({ type: toolType, category:'Tool', text: toolText });
+  }
 
   // ── STEP K: 3-TIER VERDICT ────────────────────────────────────────────────────
-  // FIX (critical): Old code: isTampered = changes.some(type==='danger'||type==='warning')
-  // This flagged WhatsApp recompression, brightness shifts, and rotation as TAMPERED.
-  // New 3-tier system: CLEAN / MODIFIED / TAMPERED
+  // TAMPERED: explicit danger signals only —
+  //   • pHash < 40 (completely different image — TC-14, TC-20)
+  //   • histSim < 40 AND pSim < 55 (different image confirmed by two signals — TC-14)
+  //   • hotRegion 'high' severity (localised pixel manipulation — TC-11, TC-12, TC-13)
+  //   • extensive pixel change >20% (TC-11)
+  //   • UUID found but owner MISMATCH (TC-20 stolen/forged)
+  //   NOTE: missing UUID alone is NOT TAMPERED — JPEG/WhatsApp/brightness all destroy it (TC-06..10,17,18)
+  //   NOTE: pSim alone (even 40-70%) is NOT TAMPERED — crop+brightness+contrast stays MODIFIED (TC-08)
   //
-  // TAMPERED: strong visual or ownership evidence of intentional alteration
-  //   - pHash < 70 (visually very different)
-  //   - danger-type change detected (crop, extensive pixel edit, wrong UUID owner)
+  // MODIFIED: technical changes present but not malicious —
+  //   • Any warning-level change: crop, resize, rotate, compression, no-UUID, no-metadata, social recompression
+  //   • pSim 40-92% (visible changes but not proven different image)
   //
-  // MODIFIED: technical changes but not necessarily malicious
-  //   - compression, minor resize, rotation, metadata stripped
-  //   - warning-level changes only
-  //   - UUID missing (could just be an unregistered copy)
-  //
-  // CLEAN: no significant changes (within noise of normal re-encoding)
+  // CLEAN: no significant changes detected
 
   const dangerChanges   = changes.filter(c => c.type === 'danger' && c.category !== 'Ownership');
+  // ownerMismatch = UUID was FOUND but belongs to a different owner (stolen/forged).
+  // "No UUID" is now a warning so it no longer triggers ownerMismatch here.
   const ownerMismatch   = changes.some(c => c.type === 'danger' && c.category === 'Ownership');
   const warningChanges  = changes.filter(c => c.type === 'warning');
-  const strongTamper    = dangerChanges.length > 0 || ownerMismatch || (pSim !== null && pSim < 70);
+  const strongTamper    = dangerChanges.length > 0 || ownerMismatch;
   const hasWarnings     = warningChanges.length > 0 || (pSim !== null && pSim < 92) || !uuidCheck.found;
 
   let verdict3tier, isTampered, isModified;
