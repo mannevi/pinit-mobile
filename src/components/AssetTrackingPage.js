@@ -802,6 +802,10 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
     changes.push({ type:'warning', category:'Cropping',
       text:`Aspect ratio changed (${(origW/origH).toFixed(2)} → ${(uploadedW/uploadedH).toFixed(2)}) — image was cropped after embedding.` });
 
+  // ── hasGeometricChange flag — declared here so H3 (file size) and Step I both use it ──
+  // Must be computed AFTER H1 (resChanged) and H2 (Cropping) have run.
+  const hasGeometricChange = resChanged || changes.some(c => c.category === 'Cropping');
+
   // H3: File size
   // FIX: fileSize stored as "245.50 KB" string. Old code divided by 1024 again → NaN.
   // Now: parseFloat("245.50 KB") = 245.50 ✓
@@ -809,11 +813,13 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
   const uploadedSizeKB = uploadedFile.size / 1024;
   if (origSizeKB && origSizeKB > 1) {
     const pctDiff = ((origSizeKB - uploadedSizeKB) / origSizeKB) * 100;
-    if (pctDiff > 20)
-      changes.push({ type:'warning', category:'Compression',
-        text:`File compressed — size reduced by ${Math.round(pctDiff)}% (${origSizeKB.toFixed(0)} KB → ${uploadedSizeKB.toFixed(0)} KB).` });
-    else if (pctDiff < -20)
-      changes.push({ type:'info', category:'Compression',
+    if (pctDiff > 20) {
+      const sizeText = hasGeometricChange
+        ? `File smaller — ${Math.round(pctDiff)}% size reduction (${origSizeKB.toFixed(0)} KB → ${uploadedSizeKB.toFixed(0)} KB) consistent with fewer pixels after crop/resize.`
+        : `File compressed — size reduced by ${Math.round(pctDiff)}% (${origSizeKB.toFixed(0)} KB → ${uploadedSizeKB.toFixed(0)} KB).`;
+      changes.push({ type:'warning', category:'File Size', text: sizeText });
+    } else if (pctDiff < -20)
+      changes.push({ type:'info', category:'File Size',
         text:`File grew — size increased by ${Math.round(Math.abs(pctDiff))}% (${origSizeKB.toFixed(0)} KB → ${uploadedSizeKB.toFixed(0)} KB).` });
   }
 
@@ -824,14 +830,14 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
     changes.push({ type:'info', category:'Format', text:`Format changed: ${origFmt} → ${uploadedFmt}.` });
 
   // ── STEP I: Pixel-level findings ─────────────────────────────────────────────
-  // CRITICAL: pixel diff runs against the Cloudinary THUMBNAIL (full image, 400px).
-  // If a crop or resize was already detected, the thumbnail covers a DIFFERENT region
-  // than the uploaded image — pixel diff and hotregion scores are meaningless and
-  // must NOT be treated as danger signals (TC-03: crop alone caused 74% "pixel change").
-  // Rule: pixel/hotregion signals are capped at 'warning' when geometric change is confirmed.
-  const hasGeometricChange = resChanged || changes.some(c => c.category === 'Cropping');
+  // Pixel diff, hotRegions, brightShift and colour channel shifts are computed by
+  // comparing the uploaded image against the Cloudinary THUMBNAIL of the full original.
+  // When crop or resize is detected the thumbnail covers a completely different region —
+  // ALL pixel-level numbers are meaningless noise and must be suppressed entirely.
+  // Only run pixel analysis when the image dimensions are unchanged (brightness edits,
+  // filters, paint-over, colour grading — TC-07,09,11,12,13 etc.).
 
-  if (pixelAnalysis) {
+  if (pixelAnalysis && !hasGeometricChange) {
     const { changedPct, hotRegions, brightShift, rShift, gShift, bShift } = pixelAnalysis;
 
     if (changedPct > 0.5 && changedPct <= 5) {
@@ -844,36 +850,29 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
       }
     }
     else if (changedPct > 5 && changedPct <= 20)
-      changes.push({ type:'warning', category:'Pixel Edit', text:`Moderate edits — ${changedPct}% of pixels changed.` });
-    else if (changedPct > 20) {
-      if (hasGeometricChange) {
-        // Pixel diff vs thumbnail is unreliable after a crop or resize — the thumbnail
-        // covers the full original image while the upload covers only part of it.
-        // Cap at warning so TC-03 stays MODIFIED not TAMPERED.
-        changes.push({ type:'warning', category:'Pixel Edit',
-          text:`${changedPct}% pixel difference vs thumbnail — expected after crop/resize (thumbnail covers the full original region; this does not indicate pixel-level manipulation).` });
-      } else {
-        changes.push({ type:'danger', category:'Pixel Edit',
-          text:`Extensive pixel modifications — ${changedPct}% of image altered.` });
-      }
-    }
+      changes.push({ type:'warning', category:'Pixel Edit', text:`Moderate pixel edits — ${changedPct}% of pixels changed.` });
+    else if (changedPct > 20)
+      // WARNING not danger: high changedPct alone could be uniform brightness/contrast/filter.
+      // TAMPERED verdict requires localized hotRegion 'high' severity (paint-over, swap, overlay).
+      changes.push({ type:'warning', category:'Pixel Edit', text:`Significant pixel changes — ${changedPct}% of image altered. Check region heatmap for localised manipulation.` });
 
-    hotRegions.slice(0,3).forEach(r => {
-      // Hotregion scores are also unreliable after crop/resize for the same reason.
-      const regionType = hasGeometricChange ? 'warning' : (r.severity==='high' ? 'danger' : 'warning');
-      changes.push({ type: regionType, category:'Region Edit',
-        text:`Localised change in ${r.name} region (intensity: ${r.score}/255).` });
-    });
+    hotRegions.slice(0,3).forEach(r =>
+      // Only 'high' severity hotRegions (score>25) indicate localised tampering — TC-11,12,13.
+      // Medium/low severity from uniform edits (brightness, filter) stays as warning.
+      changes.push({ type: r.severity==='high' ? 'danger' : 'warning', category:'Region Edit',
+        text:`Localised change in ${r.name} region (intensity: ${r.score}/255).` })
+    );
 
     if (Math.abs(brightShift) > 5)
-      changes.push({ type:'info', category:'Colour', text:`Brightness ${brightShift>0?'increased':'decreased'} by ~${Math.abs(brightShift).toFixed(1)} pts.` });
+      changes.push({ type:'warning', category:'Colour', text:`Brightness ${brightShift>0?'increased':'decreased'} by ~${Math.abs(brightShift).toFixed(1)} pts.` });
+
     const maxCh = Math.max(Math.abs(rShift), Math.abs(gShift), Math.abs(bShift));
     if (maxCh > 8) {
       const desc = [];
       if (Math.abs(rShift)>8) desc.push(`R ${rShift>0?'+':''}${rShift}`);
       if (Math.abs(gShift)>8) desc.push(`G ${gShift>0?'+':''}${gShift}`);
       if (Math.abs(bShift)>8) desc.push(`B ${bShift>0?'+':''}${bShift}`);
-      changes.push({ type:'info', category:'Colour', text:`Colour grading applied — channel shifts: ${desc.join(', ')}.` });
+      changes.push({ type:'warning', category:'Colour', text:`Colour channel shifts detected: ${desc.join(', ')}.` });
     }
   }
 
@@ -883,10 +882,32 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
     if (detectedRotation && detectedRotation !== 0)
       changes.push({ type:'warning', category:'Rotation',
         text:`Image was rotated ${detectedRotation}° — best pHash match found at that rotation (similarity ${pSim}%).` });
-    if      (pSim < 40) { changes.push({ type:'danger',  category:'Visual', text:`Completely different image — perceptual similarity only ${pSim}%. Almost certainly a different image entirely.` }); visualVerdict='Completely Different'; }
-    else if (pSim < 55) { changes.push({ type:'warning', category:'Visual', text:`High visual divergence — perceptual similarity ${pSim}%. Significant content changes detected (heavy crop, filter, or partial replacement).` }); visualVerdict='Heavily Modified'; }
-    else if (pSim < 70) { changes.push({ type:'warning', category:'Visual', text:`Significant visual changes — perceptual similarity ${pSim}%.` });     visualVerdict='Moderately Modified'; }
-    else if (pSim < 90) { changes.push({ type:'warning', category:'Visual', text:`Noticeable visual changes — perceptual similarity ${pSim}%.` });      visualVerdict='Lightly Modified'; }
+    if (pSim < 40) {
+      // Only danger if NO geometric change is known — otherwise a heavy crop+edit can push pSim below 40 legitimately (TC-08).
+      const type = hasGeometricChange ? 'warning' : 'danger';
+      const text = hasGeometricChange
+        ? `Perceptual similarity ${pSim}% — very low, but a combination of crop and pixel edits can produce this result.`
+        : `Completely different image — perceptual similarity only ${pSim}%. Almost certainly a different image entirely.`;
+      changes.push({ type, category:'Visual', text }); visualVerdict='Completely Different';
+    }
+    else if (pSim < 55) {
+      const text = hasGeometricChange
+        ? `Perceptual similarity ${pSim}% — expected drop from crop/resize reducing the image region.`
+        : `High visual divergence — perceptual similarity ${pSim}%. Significant content changes detected.`;
+      changes.push({ type:'warning', category:'Visual', text }); visualVerdict='Heavily Modified';
+    }
+    else if (pSim < 70) {
+      const text = hasGeometricChange
+        ? `Perceptual similarity ${pSim}% — consistent with geometric change (crop or resize).`
+        : `Significant visual changes — perceptual similarity ${pSim}%.`;
+      changes.push({ type:'warning', category:'Visual', text }); visualVerdict='Moderately Modified';
+    }
+    else if (pSim < 90) {
+      const text = hasGeometricChange
+        ? `Perceptual similarity ${pSim}% — minor visual difference consistent with geometric change.`
+        : `Noticeable visual changes — perceptual similarity ${pSim}%.`;
+      changes.push({ type:'warning', category:'Visual', text }); visualVerdict='Lightly Modified';
+    }
     else                { visualVerdict = pSim >= 99 ? 'Near-Identical' : 'High Similarity'; }
   } else if (histSim !== null && histSim < 40) {
     changes.push({ type:'danger', category:'Visual', text:`Very different colour profile — histogram similarity only ${histSim}% (no fingerprint stored for deeper comparison).` });
@@ -945,12 +966,14 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
   if (pSim !== null) {
     confidence = pSim;
     if (histSim !== null) confidence = Math.round(confidence * 0.70 + histSim * 0.30);
-    // Pixel penalty reduced — pixel diff vs thumbnail is noisy for cropped images
-    if (pixelAnalysis) confidence = Math.round(Math.max(0, confidence - Math.min(10, pixelAnalysis.changedPct * 0.2)));
+    // Only apply pixel penalty when pixel analysis was actually meaningful (no geometric change)
+    if (pixelAnalysis && !hasGeometricChange)
+      confidence = Math.round(Math.max(0, confidence - Math.min(10, pixelAnalysis.changedPct * 0.2)));
   } else if (histSim !== null) {
     confidence = histSim;
-    if (pixelAnalysis) confidence = Math.round(Math.max(0, confidence - Math.min(10, pixelAnalysis.changedPct * 0.2)));
-  } else if (pixelAnalysis) {
+    if (pixelAnalysis && !hasGeometricChange)
+      confidence = Math.round(Math.max(0, confidence - Math.min(10, pixelAnalysis.changedPct * 0.2)));
+  } else if (pixelAnalysis && !hasGeometricChange) {
     confidence = pixelAnalysis.pixelSimilarity;
   }
 
@@ -958,7 +981,7 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
   let totalPenalty = 0;
   if (resChanged)                                              totalPenalty += 8;
   if (changes.some(c => c.category === 'Cropping'))           totalPenalty += 8;
-  if (changes.some(c => c.category === 'Compression'))        totalPenalty += 5;
+  if (changes.some(c => c.category === 'File Size' && c.type === 'warning')) totalPenalty += 5;
   if (changes.some(c => c.category === 'Rotation'))           totalPenalty += 3;
   if (!uuidCheck.found)                                        totalPenalty += 12;
   if (uuidCheck.found && uuidCheck.matchesOwner === false)     totalPenalty += 30;
@@ -1309,7 +1332,7 @@ function AssetTrackingPage() {
     const hasCrop       = changes.some(c => c.category === 'Cropping' || c.category === 'Crop/Resize');
     const hasResize     = changes.some(c => c.category === 'Resolution');
     const hasRotation   = changes.some(c => c.category === 'Rotation');
-    const hasCompression= changes.some(c => c.category === 'Compression');
+    const hasCompression= changes.some(c => c.category === 'File Size' && c.type === 'warning');
     const hasColour     = changes.some(c => c.category === 'Colour');
     const hasFormat     = changes.some(c => c.category === 'Format');
     const hasPixelEdit  = changes.some(c => c.category === 'Pixel Edit' && c.type !== 'info');
@@ -1321,8 +1344,8 @@ function AssetTrackingPage() {
        : uuidMatches === false ? 'Compromised — different owner detected'
        : 'Detected — ownership unverifiable (no user_id in vault)')
       : hasCrop || hasResize
-        ? 'Not recoverable — UUID survives crops but embedded resolution mismatch detected; lossless tools may have re-encoded'
-        : 'Compromised — UUID destroyed by pixel-level editing (JPEG re-export, brightness, or filter applied)';
+        ? 'Not recoverable — lossless crop should preserve UUID (tile-voting); if missing, image was re-encoded during crop (e.g. saved as JPEG)'
+        : 'Compromised — UUID destroyed by pixel-level editing (JPEG re-export, brightness, filter, or social media re-encoding)';
 
     // Detected modifications list
     const detectedMods = [];
