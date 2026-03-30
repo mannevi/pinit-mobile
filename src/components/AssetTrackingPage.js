@@ -1574,6 +1574,14 @@ function AssetTrackingPage() {
                           <div className="data-row"><span>Aspect Ratio</span><span>{r.properties.aspect_ratio.uploaded}</span></div>
                         </div>
                       </div>
+                      <div className="report-actions">
+                        <button className={`btn-action copy-link ${linkCopied?'copied':''}`} onClick={handleCopyLink}>
+                          <Link size={16}/>{linkCopied ? '✓ Copied!' : 'Copy Verification Link'}
+                        </button>
+                        <button className="btn-action download-report" onClick={handleDownload}>
+                          <Download size={16}/> Download Report
+                        </button>
+                      </div>
                     </div>
                   );
                 }
