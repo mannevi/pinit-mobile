@@ -2204,7 +2204,7 @@ const saveReportToLocalStorage = (report, userInfo) => {
             resolutionMismatch = true;
           }
         }
-
+      }
       const classification = classifyImage(
         canvas,
         imageData,
