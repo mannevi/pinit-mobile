@@ -2186,17 +2186,24 @@ const saveReportToLocalStorage = (report, userInfo) => {
           const originalPixels = originalWidth * originalHeight;
           const currentPixels  = canvas.width * canvas.height;
 
-          cropInfo = {
-            isCropped:          true,
-            originalResolution: originalRes,
-            currentResolution:  currentResolution,
-            originalPixels:     originalPixels.toLocaleString(),
-            currentPixels:      currentPixels.toLocaleString(),
-            remainingPercentage: ((currentPixels / originalPixels) * 100).toFixed(2) + '%'
-          };
-          resolutionMismatch = true;
+          // ── If width/height are just swapped, it is a rotation not a crop ──
+          const isJustRotated = (
+            originalWidth  === canvas.height &&
+            originalHeight === canvas.width
+          );
+
+          if (!isJustRotated) {
+            cropInfo = {
+              isCropped:           true,
+              originalResolution:  originalRes,
+              currentResolution:   currentResolution,
+              originalPixels:      originalPixels.toLocaleString(),
+              currentPixels:       currentPixels.toLocaleString(),
+              remainingPercentage: ((currentPixels / originalPixels) * 100).toFixed(2) + '%'
+            };
+            resolutionMismatch = true;
+          }
         }
-      }
 
       const classification = classifyImage(
         canvas,
