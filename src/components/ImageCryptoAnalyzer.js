@@ -1852,8 +1852,8 @@ const ImageCryptoAnalyzer = ({ user, onLogout }) => {
       ipInfo = { ip: ipAddress, source: 'Encrypting Device' };
     }
 
-    const img = new Image();
-    img.onload = () => async {
+      const img = new Image();
+       img.onload = async () => {
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
       canvas.height = img.height;
@@ -2146,7 +2146,7 @@ const saveReportToLocalStorage = (report, userInfo) => {
   ]);
 
     const img = new Image();
-    img.onload = () => async {
+     img.onload = async () => {
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
       canvas.height = img.height;
@@ -2558,108 +2558,6 @@ const saveReportToLocalStorage = (report, userInfo) => {
                             <Download className="inline mr-2" size={18} />
                             Download Encrypted Image (PNG)
                           </button>
-
-                          {/* Watermark survival info */}
-                          <div style={{marginTop:'10px',padding:'10px 12px',background:'#fffbeb',borderRadius:'8px',border:'1px solid #fcd34d',fontSize:'12px',color:'#92400e',lineHeight:'1.6'}}>
-                            <strong>🔐 Watermark Survival After Sharing:</strong>
-                            <div style={{marginTop:'6px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px'}}>
-                              <span>✅ PNG download</span><span>100% preserved</span>
-                              <span>✅ WhatsApp share</span><span>survives at 85%+ quality</span>
-                              <span>✅ Email share</span><span>survives compression</span>
-                              <span>✅ Website upload</span><span>survives if not re-edited</span>
-                              <span>⚠️ Heavy filters</span><span>may damage watermark</span>
-                              <span>⚠️ Crop below 25px</span><span>watermark lost</span>
-                            </div>
-                          </div>
-
-                          {/* ── Share Panel ── */}
-                          <div style={{marginTop:'12px',background:'#f8fafc',borderRadius:'10px',padding:'14px',border:'1px solid #e2e8f0'}}>
-                            <p style={{fontWeight:'700',fontSize:'13px',marginBottom:'10px',color:'#374151'}}>📤 Share Image</p>
-                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-
-                              {/* WhatsApp */}
-                              <a
-                                href={`https://wa.me/?text=${encodeURIComponent('I have protected this image with PINIT watermarking. Verify at: ' + window.location.origin + '/public/verify')}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',padding:'8px',background:'#25D366',color:'white',borderRadius:'8px',textDecoration:'none',fontSize:'13px',fontWeight:'600'}}
-                              >
-                                💬 WhatsApp
-                              </a>
-
-                              {/* Email */}
-                              <a
-                                href={`mailto:?subject=Protected Image - PINIT&body=I am sharing a watermarked image protected with PINIT. Verify ownership at: ${window.location.origin}/public/verify`}
-                                style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',padding:'8px',background:'#6366f1',color:'white',borderRadius:'8px',textDecoration:'none',fontSize:'13px',fontWeight:'600'}}
-                              >
-                                📧 Email
-                              </a>
-
-                              {/* Compress + Download */}
-                              <button
-                                onClick={async () => {
-                                  const img = new Image();
-                                  img.onload = async () => {
-                                    const c = document.createElement('canvas');
-                                    c.width = img.width; c.height = img.height;
-                                    const ctx = c.getContext('2d');
-                                    ctx.drawImage(img, 0, 0);
-                                    const compressedFilename = (encryptedFileName || 'image').replace('.png', '-compressed.jpg');
-
-                                    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
-                                      // APK — use Filesystem + Share
-                                      const base64 = c.toDataURL('image/jpeg', 0.85).replace(/^data:image\/\w+;base64,/, '');
-                                      try {
-                                        const { Filesystem, Directory } = await import('@capacitor/filesystem');
-                                        const { Share }                 = await import('@capacitor/share');
-                                        const result = await Filesystem.writeFile({
-                                          path     : compressedFilename,
-                                          data     : base64,
-                                          directory: Directory.Documents,
-                                          recursive: true
-                                        });
-                                        await Share.share({
-                                          title      : 'Compressed Image',
-                                          url        : result.uri,
-                                          dialogTitle: 'Save or Share'
-                                        });
-                                      } catch (e) { console.error('Compress save error:', e); }
-                                    } else {
-                                      // Web — blob download
-                                      c.toBlob((blob) => {
-                                        const url = URL.createObjectURL(blob);
-                                        const a   = document.createElement('a');
-                                        a.href     = url;
-                                        a.download = compressedFilename;
-                                        a.click();
-                                        URL.revokeObjectURL(url);
-                                      }, 'image/jpeg', 0.85);
-                                    }
-                                  };
-                                  img.src = encryptedImage;
-                                }}
-                                style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',padding:'8px',background:'#f59e0b',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:'600'}}
-                              >
-                                🗜️ Compress
-                              </button>
-
-                              {/* Copy Link */}
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(window.location.origin + '/public/verify');
-                                  alert('Verification link copied!');
-                                }}
-                                style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'6px',padding:'8px',background:'#374151',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:'600'}}
-                              >
-                                🔗 Copy Link
-                              </button>
-                            </div>
-
-                            {/* Watermark survival note */}
-                            <div style={{marginTop:'10px',padding:'8px 10px',background:'#fffbeb',borderRadius:'6px',border:'1px solid #fcd34d',fontSize:'12px',color:'#92400e'}}>
-                              ⚠️ <strong>PNG</strong> preserves watermark 100%. <strong>JPEG (Compress)</strong> preserves at 85%+ quality. Avoid heavy filters or re-cropping below 25px.
-                            </div>
-                          </div>
                         </div>
                       )}
                     </div>

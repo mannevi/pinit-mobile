@@ -368,7 +368,7 @@ function VerifyPage() {
           const pHash = computePHashFromCanvas(canvas);
           if (pHash) {
             const { vaultAPI } = await import('../api/client');
-            const searchRes    = await vaultAPI.visualSearch(pHash, 30);
+            const searchRes    = await vaultAPI.visualSearch(pHash, 72, canvas.width, canvas.height);
             visualMatches      = searchRes.matches || [];
           }
           visualSearchDone = true;
@@ -612,7 +612,7 @@ function VerifyPage() {
 
         {/* ── Visual similarity results ───────────────────────────────────────
             Only shown when no exact match (UUID/hash) was found.
-            Searches at 30% threshold — results grouped into 3 confidence bands
+            Searches at 72% threshold — statistically significant matches only
             so admin always sees the full picture, not a cut-off list.          */}
         {verificationResult && !verificationResult.matchFound && verificationResult.visualSearchDone && (
           <div style={{ marginTop: 20 }}>
@@ -695,14 +695,14 @@ function VerifyPage() {
                   />
 
                   <div style={{ marginTop:12, paddingTop:12, borderTop:'1px solid #fde68a', fontSize:12, color:'#78350f' }}>
-                    ℹ Results searched across all {all.length > 0 ? 'vault' : ''} assets. All results above 30% similarity are shown — the admin makes the final judgment.
+                    ℹ Results searched across all vault assets. Only matches above 72% visual similarity shown — statistically significant matches only.
                   </div>
                 </div>
               );
             })() : (
               <div style={{ background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12, padding:20, textAlign:'center' }}>
                 <div style={{ color:'#64748b', fontSize:13 }}>
-                  No visual similarity found — searched all vault assets down to 30% threshold.
+                  No meaningful visual similarity found — searched all vault assets above 72% threshold.
                 </div>
                 <div style={{ color:'#94a3b8', fontSize:12, marginTop:6 }}>
                   This image has no visual resemblance to any registered asset. It is likely unrelated to your vault, or has been modified beyond visual recognition.
