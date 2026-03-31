@@ -179,12 +179,15 @@ function VerifyPage() {
   };
 
   // Rotate a canvas by 90/180/270 degrees
+  // imageSmoothingEnabled = false is critical — smoothing changes pixel values
+  // during redraw which scrambles the LSBs where the UUID is stored
   const rotateCanvasUtil = (src, degrees) => {
     const c = document.createElement('canvas');
     const swap = degrees === 90 || degrees === 270;
     c.width  = swap ? src.height : src.width;
     c.height = swap ? src.width  : src.height;
     const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;  // nearest-neighbour — preserves exact LSBs
     ctx.translate(c.width / 2, c.height / 2);
     ctx.rotate((degrees * Math.PI) / 180);
     ctx.drawImage(src, -src.width / 2, -src.height / 2);

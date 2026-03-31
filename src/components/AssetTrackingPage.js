@@ -305,6 +305,7 @@ const rotateCanvas = (src, degrees) => {
   c.width  = swap ? src.height : src.width;
   c.height = swap ? src.width  : src.height;
   const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false; // preserve exact LSBs — no interpolation
   ctx.translate(c.width/2, c.height/2);
   ctx.rotate((degrees * Math.PI) / 180);
   ctx.drawImage(src, -src.width/2, -src.height/2);
@@ -688,19 +689,8 @@ const RegionHeatmap = ({ hotRegions }) => {
 // =============================================================================
 // PART 10: Main comparison engine
 // =============================================================================
-// Helper: reduce W×H to a human-readable aspect ratio string e.g. "16:9"
-const aspectRatioStr = (w, h) => {
-  if (!w || !h) return '—';
-  const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
-  const d = gcd(w, h);
-  return `${w/d}:${h/d}`;
-};
-
-// Helper: get original format from stored asset filename
-const origFmtFinal = (asset) =>
-  (asset.fileName || asset.file_name || '').split('.').pop()?.toUpperCase() || '—';
-
 const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
+  const changes   = [];
   const uploadedW = uploadedCanvas.width;
   const uploadedH = uploadedCanvas.height;
 
@@ -711,59 +701,77 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
 
   const originalCaptureTime = originalAsset.captureTimestamp || originalAsset.capture_timestamp ||
     originalAsset.timestamp || originalAsset.dateEncrypted || null;
+  const rawModifiedFileTime = uploadedFile.lastModified || null;
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 1 — SHA-256 EXACT MATCH
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── STEP A: EXIF / editing tool detection ────────────────────────────────────
+  const editingTool = await extractEditingToolFromFile(uploadedFile, uploadedW, uploadedH);
+
+  // ── STEP B: SHA-256 exact match (strongest possible signal — short-circuit) ──
   const uploadedSHA = await computeFileSHA256(uploadedFile);
   const origSHA     = originalAsset.fileHash || originalAsset.file_hash || null;
 
   if (origSHA && uploadedSHA && origSHA === uploadedSHA) {
     return {
-      exactMatch: true,
-      decision:   'Exact Match',
-      similarity: 100,
-      uuid_status:'Present and Matched',
-      changes:    [],
-      integrity:  'Verified Original',
-      properties: {
-        resolution:   { original:`${origW}x${origH}`,     uploaded:`${uploadedW}x${uploadedH}` },
-        file_size:    { original: originalAsset.fileSize || originalAsset.file_size || '—', uploaded:`${(uploadedFile.size/1024).toFixed(1)} KB` },
-        format:       { original:(originalAsset.fileName||originalAsset.file_name||'').split('.').pop()?.toUpperCase()||'—', uploaded:(uploadedFile.type||'').split('/')[1]?.toUpperCase()||'—' },
-        aspect_ratio: { original: origW&&origH ? aspectRatioStr(origW,origH) : '—', uploaded: aspectRatioStr(uploadedW,uploadedH) },
-      },
-      originalCaptureTime,
-      modifiedFileTime: null,
-      uuidCheck: null,
-      editingTool: null,
-      pHashSim: 100,
-      histSim: 100,
-      pixelAnalysis: null,
-      timestamp: new Date().toISOString(),
+      changes: [{ type:'info', category:'Integrity', text:'SHA-256 matches exactly — files are byte-for-byte identical.' }],
+      isTampered:false, isModified:false, verdict3tier:'CLEAN',
+      visualVerdict:'Exact Match', confidence:100,
+      pHashSim:100, histSim:100, pixelAnalysis:null, editingTool:null,
+      uuidCheck:null, pHashNote:null, pHashAlgorithm:null,
+      originalCaptureTime, modifiedFileTime:null,
+      origPHash: originalAsset.visualFingerprint || originalAsset.visual_fingerprint,
+      uploadedPHash: originalAsset.visualFingerprint || originalAsset.visual_fingerprint,
+      uploadedResolution:`${uploadedW} x ${uploadedH}`,
+      uploadedSize:`${(uploadedFile.size/1024).toFixed(1)} KB`,
+      timestamp:new Date().toISOString(), exactMatch:true,
     };
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 2 — UUID CHECK
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── STEP C: UUID / ownership extraction ─────────────────────────────────────
   const uuidCheck = checkUUIDAndOwnership(uploadedCanvas, originalAsset);
 
-  let uuid_status;
-  if (!uuidCheck.found)                          uuid_status = 'Not Found';
-  else if (uuidCheck.matchesOwner === false)      uuid_status = 'Different UUID';
-  else if (uuidCheck.matchesOwner === true)       uuid_status = 'Present and Matched';
-  else                                            uuid_status = 'Partial'; // found but vault has no user_id to compare
+  if (uuidCheck.found) {
+    if (uuidCheck.matchesOwner === false)
+      changes.push({ type:'danger', category:'Ownership',
+        text:`UUID found but belongs to a different user (extracted: ${uuidCheck.userId?.slice(0,16)}…). Possible stolen or forged asset.` });
+    else if (uuidCheck.matchesOwner === true)
+      changes.push({ type:'info', category:'Ownership', text:'UUID verified — ownership confirmed. Extracted user ID matches vault owner.' });
+    else
+      changes.push({ type:'info', category:'Ownership',
+        text:`PINIT UUID detected (user: ${uuidCheck.userId?.slice(0,20)}…). Vault has no user_id to cross-check ownership.` });
+    if (uuidCheck.rotationDetected > 0)
+      changes.push({ type:'warning', category:'Ownership',
+        text:`UUID recovered after applying ${uuidCheck.rotationDetected}° rotation correction — image was rotated after embedding.` });
+    if (uuidCheck.originalResolution) {
+      const embedded = uuidCheck.originalResolution.replace(/\s/g,'').toLowerCase();
+      const current  = `${uploadedW}x${uploadedH}`;
+      if (embedded !== current)
+        changes.push({ type:'warning', category:'Crop/Resize',
+          text:`Embedded original resolution (${uuidCheck.originalResolution}) differs from current (${uploadedW}×${uploadedH}) — image was resized or cropped after embedding.` });
+    }
+  } else {
+    changes.push({ type:'danger', category:'Ownership',
+      text:'No PINIT ownership signature found. UUID embedding survives geometric cropping but is destroyed by brightness, contrast, or any pixel-level adjustment — its absence is evidence of pixel manipulation after embedding.' });
+  }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 3 — VISUAL SIMILARITY (pHash, rotation-aware)
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── STEP D: pHash visual fingerprint (primary visual signal) ─────────────────
   const origPHash = originalAsset.visualFingerprint || originalAsset.visual_fingerprint || null;
-  const { sim: pSim, rotation: detectedRotation, algorithm: pHashAlgorithm, note: pHashNote } =
+  const { sim: pSim, rotation: detectedRotation, algorithm: pHashAlgorithm, isLegacy: pHashIsLegacy, note: pHashNote } =
     pHashSimWithRotationCompat(uploadedCanvas, origPHash);
+  const uploadedPHash = computePerceptualHashFromCanvas(uploadedCanvas);
 
-  // Histogram as secondary corroborating signal
+  // ── STEP E: Rotation-correct the canvas before pixel diff ────────────────────
+  // FIX: Without this, a 90° rotation causes ~50% false pixel diff.
+  const alignedCanvas = (detectedRotation && detectedRotation !== 0)
+    ? rotateCanvas(uploadedCanvas, (360 - detectedRotation) % 360)
+    : uploadedCanvas;
+
+  // ── STEP F: Pixel diff against thumbnail (supporting signal) ─────────────────
+  let pixelAnalysis = null;
   const thumbSrc = originalAsset.thumbnail || originalAsset.thumbnailUrl ||
     originalAsset.thumbnail_url || originalAsset.cloudinary_url;
+  if (thumbSrc) pixelAnalysis = await runPixelDiff(thumbSrc, alignedCanvas);
+
+  // ── STEP G: Colour histogram (secondary signal) ───────────────────────────────
   let histSim = null;
   if (thumbSrc) {
     try {
@@ -772,170 +780,175 @@ const runComparison = async (uploadedCanvas, uploadedFile, originalAsset) => {
     } catch { histSim = null; }
   }
 
-  // Decide: is this the same asset or a completely different image?
-  // UUID match is cryptographic proof → always "Same Asset, Modified"
-  // pHash ≥ 45 → visually related enough to be same asset
-  // pHash < 45 AND histogram < 40 AND no UUID → "Different Image"
-  const uuidConfirmed  = uuid_status === 'Present and Matched' || uuid_status === 'Partial';
-  const visuallyRelated = pSim !== null && pSim >= 45;
-  const histConfirms    = histSim !== null && histSim >= 40;
-  const isSameAsset     = uuidConfirmed || visuallyRelated || histConfirms;
-
-  const decision = isSameAsset ? 'Same Asset, Modified' : 'Different Image';
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 4 — TRANSFORMATION DETECTION (only when same asset)
-  // ─────────────────────────────────────────────────────────────────────────────
-  const detectedChanges = []; // clean string array per spec
-
-  if (isSameAsset) {
-    // 4a — Rotation (from pHash rotation search)
-    if (detectedRotation === 90)  detectedChanges.push('Rotated 90°');
-    if (detectedRotation === 180) detectedChanges.push('Rotated 180°');
-    if (detectedRotation === 270) detectedChanges.push('Rotated 270°');
-
-    // 4b — Crop vs Resize
-    const wDiff = Math.abs(uploadedW - origW);
-    const hDiff = Math.abs(uploadedH - origH);
-    const resChanged = origW > 0 && (wDiff > 50 || hDiff > 50);
-    const origAR  = origW / (origH || 1);
-    const upAR    = uploadedW / (uploadedH || 1);
-    const arChanged = origW > 0 && Math.abs(origAR - upAR) > 0.05;
-
-    if (arChanged && resChanged) {
-      detectedChanges.push('Cropped'); // aspect ratio changed = crop
-    } else if (resChanged && !arChanged) {
-      detectedChanges.push('Resized'); // same ratio, different size = scale
-    }
-
-    // 4c — UUID-embedded resolution mismatch confirms crop/resize even when aspect ratio is same
-    if (uuidCheck.found && uuidCheck.originalResolution) {
-      const embeddedRes = uuidCheck.originalResolution.replace(/\s/g,'').toLowerCase();
-      const currentRes  = `${uploadedW}x${uploadedH}`;
-      if (embeddedRes !== currentRes && !detectedChanges.includes('Cropped') && !detectedChanges.includes('Resized')) {
-        detectedChanges.push('Resized');
-      }
-    }
-
-    // 4d — Format changed
-    const uploadedFmt = (uploadedFile.type || '').split('/')[1]?.toUpperCase();
-    const origFmt     = (originalAsset.fileName || originalAsset.file_name || '').split('.').pop()?.toUpperCase();
-    if (uploadedFmt && origFmt && uploadedFmt !== origFmt)
-      detectedChanges.push('Format Changed');
-
-    // 4e — Recompressed: file size dropped AND no geometric change explains it
-    const origSizeKB     = fmtFileSize(originalAsset.fileSize || originalAsset.file_size);
-    const uploadedSizeKB = uploadedFile.size / 1024;
-    const hasGeometric   = arChanged || resChanged;
-    if (origSizeKB && origSizeKB > 1) {
-      const pctDrop = ((origSizeKB - uploadedSizeKB) / origSizeKB) * 100;
-      if (pctDrop > 30 && !hasGeometric)
-        detectedChanges.push('Recompressed');
-    }
-
-    // 4f — Screenshot suspected: no UUID + no metadata + unusual resolution signature
-    const editingTool = await extractEditingToolFromFile(uploadedFile, uploadedW, uploadedH);
-    const noMetadata  = !editingTool || editingTool.startsWith('No metadata recorded');
-    const unusualRes  = uploadedW % 1 !== 0; // placeholder; real check below
-    const screenshotIndicators = [
-      !uuidCheck.found,
-      noMetadata,
-      uploadedFmt === 'PNG' && origFmt === 'PNG', // PNG screenshot of PNG original
-      // common screenshot aspect ratios: 9:16 portrait, 16:9 landscape, 4:3
-    ].filter(Boolean).length;
-    // Only flag screenshot if UUID is gone AND metadata is gone AND pSim is moderate
-    if (!uuidCheck.found && noMetadata && pSim !== null && pSim >= 45 && pSim < 80)
-      detectedChanges.push('Screenshot Suspected');
+  // ── STEP H: Structural comparisons ───────────────────────────────────────────
+  // H1: Resolution
+  const wDiff = Math.abs(uploadedW - origW), hDiff = Math.abs(uploadedH - origH);
+  const resChanged = origW > 0 && ((wDiff/origW)>0.10 || (hDiff/(origH||1))>0.10 || wDiff>100 || hDiff>100);
+  if (resChanged) {
+    if (uploadedW < origW)
+      changes.push({ type:'warning', category:'Resolution', text:`Downscaled: ${origW}×${origH} → ${uploadedW}×${uploadedH} (${Math.round((uploadedW/origW)*100)}% of original).` });
+    else if (uploadedW > origW)
+      changes.push({ type:'info', category:'Resolution', text:`Upscaled: ${origW}×${origH} → ${uploadedW}×${uploadedH}.` });
+    else
+      changes.push({ type:'warning', category:'Resolution', text:`Dimensions changed: ${origW}×${origH} → ${uploadedW}×${uploadedH}.` });
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 5 — INTEGRITY CLASSIFICATION
-  // ─────────────────────────────────────────────────────────────────────────────
-  let integrity;
-  if (decision === 'Different Image') {
-    integrity = 'No Relation';
-  } else if (detectedChanges.length === 0) {
-    // SHA didn't match but no changes detected — minor recompression not caught
-    integrity = 'Verified Original';
-  } else {
-    const hasGeo        = detectedChanges.some(c => ['Cropped','Resized','Rotated 90°','Rotated 180°','Rotated 270°'].includes(c));
-    const hasExternal   = detectedChanges.includes('Screenshot Suspected') || detectedChanges.includes('Recompressed') || detectedChanges.includes('Format Changed');
-    const hasDiffUUID   = uuid_status === 'Different UUID';
-    if (hasDiffUUID) {
-      integrity = 'Possible Tampering';
-    } else if (hasExternal) {
-      integrity = 'External Processing';
-    } else if (hasGeo) {
-      integrity = 'Basic Modification';
-    } else {
-      integrity = 'External Processing';
+  // H2: Aspect ratio / crop
+  if (origW > 0 && Math.abs((uploadedW/uploadedH) - (origW/origH)) > 0.08)
+    changes.push({ type:'danger', category:'Cropping',
+      text:`Aspect ratio changed (${(origW/origH).toFixed(2)} → ${(uploadedW/uploadedH).toFixed(2)}) — image was cropped.` });
+
+  // H3: File size
+  // FIX: fileSize stored as "245.50 KB" string. Old code divided by 1024 again → NaN.
+  // Now: parseFloat("245.50 KB") = 245.50 ✓
+  const origSizeKB     = fmtFileSize(originalAsset.fileSize || originalAsset.file_size);
+  const uploadedSizeKB = uploadedFile.size / 1024;
+  if (origSizeKB && origSizeKB > 1) {
+    const pctDiff = ((origSizeKB - uploadedSizeKB) / origSizeKB) * 100;
+    if (pctDiff > 20)
+      changes.push({ type:'warning', category:'Compression',
+        text:`File compressed — size reduced by ${Math.round(pctDiff)}% (${origSizeKB.toFixed(0)} KB → ${uploadedSizeKB.toFixed(0)} KB).` });
+    else if (pctDiff < -20)
+      changes.push({ type:'info', category:'Compression',
+        text:`File grew — size increased by ${Math.round(Math.abs(pctDiff))}% (${origSizeKB.toFixed(0)} KB → ${uploadedSizeKB.toFixed(0)} KB).` });
+  }
+
+  // H4: Format
+  const uploadedFmt = (uploadedFile.type || '').split('/')[1]?.toUpperCase();
+  const origFmt     = (originalAsset.fileName || originalAsset.file_name || '').split('.').pop()?.toUpperCase();
+  if (uploadedFmt && origFmt && uploadedFmt !== origFmt && origFmt !== 'PNG')
+    changes.push({ type:'info', category:'Format', text:`Format changed: ${origFmt} → ${uploadedFmt}.` });
+
+  // ── STEP I: Pixel-level findings ─────────────────────────────────────────────
+  if (pixelAnalysis) {
+    const { changedPct, hotRegions, brightShift, rShift, gShift, bShift } = pixelAnalysis;
+    if (changedPct > 0.5 && changedPct <= 5)
+      changes.push({ type:'warning', category:'Pixel Edit',
+        text:`Minor pixel edits — ${changedPct}% of pixels changed vs thumbnail. (Note: JPEG compression alone causes minor pixel differences.)` });
+    else if (changedPct > 5 && changedPct <= 20)
+      changes.push({ type:'warning', category:'Pixel Edit', text:`Moderate edits — ${changedPct}% of pixels changed.` });
+    else if (changedPct > 20)
+      changes.push({ type:'danger', category:'Pixel Edit', text:`Extensive pixel modifications — ${changedPct}% of image altered.` });
+    hotRegions.slice(0,3).forEach(r =>
+      changes.push({ type: r.severity==='high' ? 'danger' : 'warning', category:'Region Edit',
+        text:`Localised change in ${r.name} region (intensity: ${r.score}/255).` })
+    );
+    if (Math.abs(brightShift) > 5)
+      changes.push({ type:'info', category:'Colour', text:`Brightness ${brightShift>0?'increased':'decreased'} by ~${Math.abs(brightShift).toFixed(1)} pts.` });
+    const maxCh = Math.max(Math.abs(rShift), Math.abs(gShift), Math.abs(bShift));
+    if (maxCh > 8) {
+      const desc = [];
+      if (Math.abs(rShift)>8) desc.push(`R ${rShift>0?'+':''}${rShift}`);
+      if (Math.abs(gShift)>8) desc.push(`G ${gShift>0?'+':''}${gShift}`);
+      if (Math.abs(bShift)>8) desc.push(`B ${bShift>0?'+':''}${bShift}`);
+      changes.push({ type:'info', category:'Colour', text:`Colour grading applied — channel shifts: ${desc.join(', ')}.` });
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // STEP 6 — SIMILARITY SCORE
-  // ─────────────────────────────────────────────────────────────────────────────
-  let similarity = 0;
-  if (decision === 'Different Image') {
-    similarity = pSim !== null ? Math.min(pSim, 44) : 0; // cap at 44 for "different"
-  } else {
-    // Base: pHash weighted with histogram
-    let base = pSim !== null ? pSim : (histSim || 0);
-    if (pSim !== null && histSim !== null) base = Math.round(pSim * 0.7 + histSim * 0.3);
-    // UUID confirmed = floor boost — cryptographic proof it's the same asset
-    if (uuid_status === 'Present and Matched') base = Math.max(base, 72);
-    similarity = Math.min(99, Math.max(45, Math.round(base))); // "Same Asset Modified" range: 45–99
+  // ── STEP J: pHash visual verdict ─────────────────────────────────────────────
+  let visualVerdict = 'Unknown';
+  if (pSim !== null) {
+    if (detectedRotation && detectedRotation !== 0)
+      changes.push({ type:'warning', category:'Rotation',
+        text:`Image was rotated ${detectedRotation}° — best pHash match found at that rotation (similarity ${pSim}%).` });
+    if      (pSim < 40) { changes.push({ type:'danger',  category:'Visual', text:`Completely different image — perceptual similarity only ${pSim}%.` }); visualVerdict='Completely Different'; }
+    else if (pSim < 60) { changes.push({ type:'danger',  category:'Visual', text:`High visual divergence — perceptual similarity ${pSim}%.` });        visualVerdict='Heavily Modified'; }
+    else if (pSim < 75) { changes.push({ type:'warning', category:'Visual', text:`Significant visual changes — perceptual similarity ${pSim}%.` });     visualVerdict='Moderately Modified'; }
+    else if (pSim < 90) { changes.push({ type:'warning', category:'Visual', text:`Noticeable visual changes — perceptual similarity ${pSim}%.` });      visualVerdict='Lightly Modified'; }
+    else                { visualVerdict = pSim >= 99 ? 'Near-Identical' : 'High Similarity'; }
+  } else if (histSim !== null && histSim < 40) {
+    changes.push({ type:'danger', category:'Visual', text:`Very different colour profile — histogram similarity only ${histSim}% (no fingerprint stored for deeper comparison).` });
+    visualVerdict = 'Likely Different';
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // PROPERTIES
-  // ─────────────────────────────────────────────────────────────────────────────
-  const editingToolFinal = await extractEditingToolFromFile(uploadedFile, uploadedW, uploadedH);
+  if (histSim !== null && pSim !== null && histSim < 40 && pSim < 60)
+    changes.push({ type:'danger', category:'Colour Profile', text:`Colour histogram very different (${histSim}%) — confirms different image content.` });
+
+  if (editingTool)
+    changes.push({ type:'info', category:'Tool', text:`Editing software detected in file metadata: ${editingTool}.` });
+
+  // ── STEP K: 3-TIER VERDICT ────────────────────────────────────────────────────
+  // FIX (critical): Old code: isTampered = changes.some(type==='danger'||type==='warning')
+  // This flagged WhatsApp recompression, brightness shifts, and rotation as TAMPERED.
+  // New 3-tier system: CLEAN / MODIFIED / TAMPERED
+  //
+  // TAMPERED: strong visual or ownership evidence of intentional alteration
+  //   - pHash < 70 (visually very different)
+  //   - danger-type change detected (crop, extensive pixel edit, wrong UUID owner)
+  //
+  // MODIFIED: technical changes but not necessarily malicious
+  //   - compression, minor resize, rotation, metadata stripped
+  //   - warning-level changes only
+  //   - UUID missing (could just be an unregistered copy)
+  //
+  // CLEAN: no significant changes (within noise of normal re-encoding)
+
+  const dangerChanges   = changes.filter(c => c.type === 'danger' && c.category !== 'Ownership');
+  const ownerMismatch   = changes.some(c => c.type === 'danger' && c.category === 'Ownership');
+  const warningChanges  = changes.filter(c => c.type === 'warning');
+  const strongTamper    = dangerChanges.length > 0 || ownerMismatch || (pSim !== null && pSim < 70);
+  const hasWarnings     = warningChanges.length > 0 || (pSim !== null && pSim < 92) || !uuidCheck.found;
+
+  let verdict3tier, isTampered, isModified;
+  if (strongTamper)     { verdict3tier='TAMPERED'; isTampered=true;  isModified=false; }
+  else if (hasWarnings) { verdict3tier='MODIFIED'; isTampered=false; isModified=true;  }
+  else                  { verdict3tier='CLEAN';    isTampered=false; isModified=false; }
+
+  const modifiedFileTime = (isTampered || isModified) ? rawModifiedFileTime : null;
+
+  // ── STEP L: Confidence score ──────────────────────────────────────────────────
+  // Base from visual signals
+  let confidence = 0;
+  if (pSim !== null) {
+    confidence = pSim;
+    if (histSim !== null) confidence = Math.round(confidence * 0.70 + histSim * 0.30);
+    // Pixel penalty reduced — pixel diff vs thumbnail is noisy for cropped images
+    if (pixelAnalysis) confidence = Math.round(Math.max(0, confidence - Math.min(10, pixelAnalysis.changedPct * 0.2)));
+  } else if (histSim !== null) {
+    confidence = histSim;
+    if (pixelAnalysis) confidence = Math.round(Math.max(0, confidence - Math.min(10, pixelAnalysis.changedPct * 0.2)));
+  } else if (pixelAnalysis) {
+    confidence = pixelAnalysis.pixelSimilarity;
+  }
+
+  // Structural penalties — capped so they can't stack to 0 on a legitimate modified image
+  let totalPenalty = 0;
+  if (resChanged)                                              totalPenalty += 8;
+  if (changes.some(c => c.category === 'Cropping'))           totalPenalty += 8;
+  if (changes.some(c => c.category === 'Compression'))        totalPenalty += 5;
+  if (changes.some(c => c.category === 'Rotation'))           totalPenalty += 3;
+  if (!uuidCheck.found)                                        totalPenalty += 12;
+  if (uuidCheck.found && uuidCheck.matchesOwner === false)     totalPenalty += 30;
+  // Cap total structural penalty — prevents legitimate modified images hitting 0%
+  totalPenalty = Math.min(totalPenalty, 30);
+  confidence = Math.max(0, confidence - totalPenalty);
+
+  // UUID ownership confirmed = cryptographic proof this is the same asset.
+  // Even a heavily cropped + filtered image should never show 0% if UUID matches.
+  if (uuidCheck.found && uuidCheck.matchesOwner === true)  confidence = Math.max(confidence, 38);
+  else if (uuidCheck.found && uuidCheck.matchesOwner === null) confidence = Math.max(confidence, 22);
+
+  confidence = Math.min(100, confidence);
 
   return {
-    exactMatch:  false,
-    decision,
-    similarity,
-    uuid_status,
-    changes:     detectedChanges,
-    integrity,
-    properties: {
-      resolution:   { original:`${origW}x${origH}`,     uploaded:`${uploadedW}x${uploadedH}` },
-      file_size:    { original: originalAsset.fileSize || originalAsset.file_size || '—', uploaded:`${(uploadedFile.size/1024).toFixed(1)} KB` },
-      format:       { original: origFmtFinal(originalAsset), uploaded:(uploadedFile.type||'').split('/')[1]?.toUpperCase()||'—' },
-      aspect_ratio: { original: origW&&origH ? aspectRatioStr(origW,origH) : '—', uploaded: aspectRatioStr(uploadedW,uploadedH) },
-    },
-    // Legacy fields kept so existing UI/HTML-report code doesn't break
-    verdict3tier:  decision === 'Exact Match' ? 'CLEAN' : decision === 'Same Asset, Modified' ? 'MODIFIED' : 'TAMPERED',
-    isTampered:    decision === 'Different Image' || uuid_status === 'Different UUID',
-    isModified:    decision === 'Same Asset, Modified',
-    visualVerdict: decision,
-    confidence:    similarity,
-    pHashSim:      pSim,
-    pHashNote,
-    pHashAlgorithm,
-    histSim,
-    detectedRotation,
-    pixelAnalysis: null, // suppressed — no longer used in new engine
-    editingTool:   editingToolFinal,
-    uuidCheck,
-    originalCaptureTime,
-    modifiedFileTime: uploadedFile.lastModified || null,
+    changes, isTampered, isModified, verdict3tier, visualVerdict, confidence,
+    pHashSim: pSim, pHashNote, pHashAlgorithm, histSim, detectedRotation,
+    pixelAnalysis, editingTool, uuidCheck, origPHash, uploadedPHash,
+    originalCaptureTime, modifiedFileTime,
     uploadedResolution: `${uploadedW} x ${uploadedH}`,
     uploadedSize: `${(uploadedFile.size/1024).toFixed(1)} KB`,
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString(), exactMatch: false,
   };
 };
-
 
 // =============================================================================
 // PART 11: HTML report download
 // =============================================================================
 const downloadHTMLReport = (originalAsset, result, origPreview, modPreview) => {
-  const changeRows = (result.changes || []).map(c => {
-    const label = typeof c === 'string' ? c : (c.category || '');
-    const text  = typeof c === 'string' ? c : (c.text || c);
-    return `<tr style="background:#fffaf0"><td style="color:#dd6b20;font-weight:700;white-space:nowrap;padding:10px 16px">${label}</td><td style="padding:10px 16px;color:#2d3748">${text}</td></tr>`;
+  const changeRows = result.changes.map(c => {
+    const color = c.type==='danger'?'#e53e3e':c.type==='warning'?'#dd6b20':'#3182ce';
+    const bg    = c.type==='danger'?'#fff5f5':c.type==='warning'?'#fffaf0':'#ebf8ff';
+    return `<tr style="background:${bg}"><td style="color:${color};font-weight:700;white-space:nowrap;padding:10px 16px">${c.category}</td><td style="padding:10px 16px;color:#2d3748">${c.text}</td></tr>`;
   }).join('');
 
   const vColor = result.verdict3tier==='TAMPERED'?'#9b2c2c':result.verdict3tier==='MODIFIED'?'#7b341e':'#22543d';
@@ -1245,90 +1258,6 @@ function AssetTrackingPage() {
 
   const hasRichData = (a) => !!(a.fileHash||a.file_hash||a.visualFingerprint||a.visual_fingerprint||a.certificateId||a.certificate_id);
 
-  // ── Conclusion summary — structured plain-English block for each result ──────
-  const buildConclusionSummary = (result, asset) => {
-    if (!result) return null;
-    const { verdict3tier, confidence, uuidCheck, changes, pHashSim, histSim, pixelAnalysis, editingTool } = result;
-
-    const hasCrop       = changes.some(c => c.category === 'Cropping' || c.category === 'Crop/Resize');
-    const hasResize     = changes.some(c => c.category === 'Resolution');
-    const hasRotation   = changes.some(c => c.category === 'Rotation');
-    const hasCompression= changes.some(c => c.category === 'File Size' && c.type === 'warning');
-    const hasColour     = changes.some(c => c.category === 'Colour');
-    const hasFormat     = changes.some(c => c.category === 'Format');
-    const hasPixelEdit  = changes.some(c => c.category === 'Pixel Edit' && c.type !== 'info');
-    const hasHotRegion  = changes.some(c => c.category === 'Region Edit' && c.type === 'danger');
-    const uuidFound     = uuidCheck?.found;
-    const uuidMatches   = uuidCheck?.matchesOwner;
-    const uuidIntegrity = uuidFound
-      ? (uuidMatches === true  ? 'Confirmed — ownership verified'
-       : uuidMatches === false ? 'Compromised — different owner detected'
-       : 'Detected — ownership unverifiable (no user_id in vault)')
-      : hasCrop || hasResize
-        ? 'Not recoverable — lossless crop should preserve UUID (tile-voting); if missing, image was re-encoded during crop (e.g. saved as JPEG)'
-        : 'Compromised — UUID destroyed by pixel-level editing (JPEG re-export, brightness, filter, or social media re-encoding)';
-
-    // Detected modifications list
-    const detectedMods = [];
-    if (hasCrop)        detectedMods.push('Cropping — aspect ratio / frame changed');
-    if (hasResize)      detectedMods.push('Resize — dimensions scaled');
-    if (hasRotation)    detectedMods.push('Rotation — image orientation changed');
-    if (hasCompression) detectedMods.push('Compression — file size significantly reduced');
-    if (hasFormat)      detectedMods.push('Format change — file type converted (e.g. PNG → JPEG)');
-    if (hasColour)      detectedMods.push('Colour/brightness adjustment — pixel-level edit detected');
-    if (hasPixelEdit)   detectedMods.push('Pixel edits — content-level changes detected');
-    if (hasHotRegion)   detectedMods.push('Localised pixel manipulation — specific regions heavily altered');
-    if (editingTool && !editingTool.startsWith('No metadata')) detectedMods.push(`Editing software: ${editingTool}`);
-
-    // Visual analysis bullets
-    const visualItems = [];
-    if (pHashSim !== null) {
-      if (pHashSim >= 95)      visualItems.push(`Near-identical visual match (pHash ${pHashSim}%)`);
-      else if (pHashSim >= 80) visualItems.push(`High visual similarity (pHash ${pHashSim}%) — same content, minor changes`);
-      else if (pHashSim >= 60) visualItems.push(`Partial visual match (pHash ${pHashSim}%) — significant region or content changes`);
-      else if (pHashSim >= 40) visualItems.push(`Low visual match (pHash ${pHashSim}%) — heavily modified or cropped`);
-      else                     visualItems.push(`Very low visual similarity (pHash ${pHashSim}%) — likely a different image`);
-    }
-    if (hasCrop)   visualItems.push('Missing image regions identified — partial frame submitted');
-    if (hasCrop)   visualItems.push('Feature matches limited to overlapping areas only');
-    if (histSim !== null && histSim >= 70) visualItems.push(`Colour profile consistent with original (histogram ${histSim}%)`);
-    if (histSim !== null && histSim <  70) visualItems.push(`Colour profile shift detected (histogram ${histSim}%)`);
-
-    // Conclusion text
-    let conclusion = '';
-    let recommendation = '';
-    if (verdict3tier === 'CLEAN') {
-      conclusion = 'Image matches the registered vault original within normal encoding tolerances. No evidence of modification detected.';
-      recommendation = 'No action required — image is authentic.';
-    } else if (verdict3tier === 'MODIFIED') {
-      if (hasCrop && !hasColour && !hasPixelEdit) {
-        conclusion = 'This image is likely a cropped version of the registered asset. Ownership cannot be confirmed via UUID due to the geometric change, but visual similarity and embedded metadata strongly suggest derivation from the original.';
-        recommendation = 'Manual review recommended — cropping alone is not evidence of malicious intent.';
-      } else if (hasColour || hasCompression || hasFormat) {
-        conclusion = 'Technical changes were applied to this image after registration. These changes are consistent with normal re-export, social media processing, or colour adjustment — not necessarily malicious.';
-        recommendation = 'Manual review recommended — changes may be benign but represent a modified derivative.';
-      } else {
-        conclusion = 'This image is a modified derivative of the registered asset. Technical changes have been detected but no strong evidence of malicious tampering.';
-        recommendation = 'Manual review recommended.';
-      }
-    } else { // TAMPERED
-      if (uuidMatches === false) {
-        conclusion = 'A PINIT ownership signature was found but it belongs to a different registered user. This is strong forensic evidence of asset theft or forgery.';
-        recommendation = 'Escalate immediately — potential copyright infringement or asset forgery detected.';
-      } else if (hasHotRegion) {
-        conclusion = 'Localised pixel-level manipulation detected in specific image regions. This pattern is consistent with content removal, object replacement, or watermark tampering.';
-        recommendation = 'Escalate — strong evidence of deliberate content alteration.';
-      } else {
-        conclusion = 'Strong forensic signals indicate deliberate intentional alteration of this image. Multiple tamper indicators are present simultaneously.';
-        recommendation = 'Escalate — this image shows clear signs of tampering.';
-      }
-    }
-
-    const confidenceLabel = confidence >= 80 ? 'High' : confidence >= 50 ? 'Moderate' : 'Low';
-
-    return { uuidIntegrity, uuidFound, detectedMods, visualItems, conclusion, recommendation, confidenceLabel };
-  };
-
   const verdictBanner = (v3) => {
     if (v3 === 'TAMPERED') return { cls:'tampered', icon:<AlertTriangle size={28}/>, label:'🚨 TAMPERED — Strong evidence of deliberate alteration', sub:'This image shows clear signs of intentional modification.' };
     if (v3 === 'MODIFIED') {
@@ -1542,166 +1471,156 @@ function AssetTrackingPage() {
 
               {/* ── Results ─────────────────────────────────────────────────── */}
               {comparisonResult && (() => {
-                const r = comparisonResult;
-
-                // ── EXACT MATCH ───────────────────────────────────────────────
-                if (r.exactMatch) {
-                  return (
-                    <div className="comparison-results">
-                      <div className="verdict-banner clean" style={{justifyContent:'space-between',alignItems:'center'}}>
-                        <div style={{display:'flex',alignItems:'center',gap:16}}>
-                          <CheckCircle size={36} color="#276749"/>
-                          <div>
-                            <div style={{fontWeight:800,fontSize:18,color:'#276749'}}>Exact Match</div>
-                            <div style={{fontSize:13,color:'#4a5568',marginTop:2}}>SHA-256 verified — byte-for-byte identical to vault original.</div>
-                          </div>
-                        </div>
-                        <div style={{fontWeight:900,fontSize:40,color:'#276749'}}>100%</div>
-                      </div>
-                      <div className="data-compare-grid" style={{marginTop:16}}>
-                        <div className="data-col">
-                          <div className="data-col-head original">Original Asset</div>
-                          <div className="data-row"><span>Resolution</span><span>{r.properties.resolution.original}</span></div>
-                          <div className="data-row"><span>File Size</span><span>{r.properties.file_size.original}</span></div>
-                          <div className="data-row"><span>Format</span><span>{r.properties.format.original}</span></div>
-                          <div className="data-row"><span>Aspect Ratio</span><span>{r.properties.aspect_ratio.original}</span></div>
-                        </div>
-                        <div className="data-col">
-                          <div className="data-col-head modified">Submitted Image</div>
-                          <div className="data-row"><span>Resolution</span><span>{r.properties.resolution.uploaded}</span></div>
-                          <div className="data-row"><span>File Size</span><span>{r.properties.file_size.uploaded}</span></div>
-                          <div className="data-row"><span>Format</span><span>{r.properties.format.uploaded}</span></div>
-                          <div className="data-row"><span>Aspect Ratio</span><span>{r.properties.aspect_ratio.uploaded}</span></div>
-                        </div>
-                      </div>
-                      <div className="report-actions">
-                        <button className={`btn-action copy-link ${linkCopied?'copied':''}`} onClick={handleCopyLink}>
-                          <Link size={16}/>{linkCopied ? '✓ Copied!' : 'Copy Verification Link'}
-                        </button>
-                        <button className="btn-action download-report" onClick={handleDownload}>
-                          <Download size={16}/> Download Report
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
-
-                // ── DIFFERENT / MODIFIED ──────────────────────────────────────
-                const decisionColor = r.decision === 'Different Image' ? '#c53030' : '#c05621';
-                const decisionBg    = r.decision === 'Different Image' ? '#fff5f5'  : '#fffaf0';
-                const decisionBorder= r.decision === 'Different Image' ? '#feb2b2'  : '#fbd38d';
-                const decisionIcon  = r.decision === 'Different Image' ? '🚫' : '⚡';
-                const integrityColor = {
-                  'Verified Original':  '#276749',
-                  'Basic Modification': '#c05621',
-                  'External Processing':'#2c5282',
-                  'Possible Tampering': '#c53030',
-                  'No Relation':        '#c53030',
-                }[r.integrity] || '#718096';
-
+                const vb = verdictBanner(comparisonResult.verdict3tier);
                 return (
                   <div className="comparison-results">
 
-                    {/* Decision banner */}
-                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 24px',borderRadius:12,background:decisionBg,border:`2px solid ${decisionBorder}`,marginBottom:16}}>
-                      <div style={{display:'flex',alignItems:'center',gap:14}}>
-                        <span style={{fontSize:32}}>{decisionIcon}</span>
-                        <div>
-                          <div style={{fontWeight:800,fontSize:20,color:decisionColor}}>{r.decision}</div>
-                          <div style={{fontSize:13,color:'#718096',marginTop:2}}>
-                            Integrity: <strong style={{color:integrityColor}}>{r.integrity}</strong>
-                            {r.uuid_status && <> &nbsp;·&nbsp; UUID: <strong style={{color:r.uuid_status==='Present and Matched'?'#276749':r.uuid_status==='Not Found'?'#718096':'#c53030'}}>{r.uuid_status}</strong></>}
-                          </div>
-                        </div>
+                    {/* 3-tier verdict banner */}
+                    <div className={`verdict-banner ${vb.cls}`}>
+                      <div className="verdict-icon">{vb.icon}</div>
+                      <div className="verdict-text">
+                        <h3>{comparisonResult.exactMatch ? '✓ Exact Match — Byte-for-Byte Identical' : vb.label}</h3>
+                        <p>{vb.sub}</p>
+                        <p style={{margin:'4px 0 0',opacity:.85}}>{comparisonResult.visualVerdict} · Similarity: {comparisonResult.confidence}%</p>
                       </div>
-                      <div style={{textAlign:'right'}}>
-                        <div style={{fontWeight:900,fontSize:44,color:decisionColor,lineHeight:1}}>{r.similarity}%</div>
-                        <div style={{fontSize:11,color:'#a0aec0',marginTop:2}}>similarity</div>
-                      </div>
+                      <div className="verdict-score">{comparisonResult.confidence}%</div>
                     </div>
 
-                    {/* Changes — only if any detected */}
-                    {r.changes.length > 0 && (
-                      <div style={{marginBottom:16,padding:'14px 18px',background:'#f7fafc',borderRadius:10,border:'1px solid #e2e8f0'}}>
-                        <div style={{fontWeight:700,fontSize:12,color:'#4a5568',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:10}}>
-                          Detected Changes
-                        </div>
-                        <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
-                          {r.changes.map((c, i) => (
-                            <span key={i} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 12px',borderRadius:20,background:'white',border:'1px solid #e2e8f0',fontSize:13,fontWeight:600,color:'#2d3748'}}>
-                              {c === 'Cropped'              && '✂️'}
-                              {c === 'Resized'              && '↔️'}
-                              {(c.startsWith('Rotated'))    && '🔄'}
-                              {c === 'Screenshot Suspected' && '📱'}
-                              {c === 'Recompressed'         && '🗜️'}
-                              {c === 'Format Changed'       && '🔁'}
-                              {' '}{c}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                     {/* UUID strip */}
-                    {r.uuidCheck && (() => {
-                      const { found, matchesOwner, userId, deviceName, gps, originalResolution, rotationDetected } = r.uuidCheck;
-                      const uColor  = found && matchesOwner !== false ? '#276749' : '#c53030';
-                      const uBg     = found && matchesOwner !== false ? '#f0fff4' : '#fff5f5';
-                      const uBorder = found && matchesOwner !== false ? '#9ae6b4' : '#feb2b2';
+                    {comparisonResult.uuidCheck && (() => {
+                      const { found, matchesOwner, userId, deviceName, gps, originalResolution, rotationDetected } = comparisonResult.uuidCheck;
+                      const uColor = found && matchesOwner!==false ? '#276749' : '#c53030';
+                      const uBg    = found && matchesOwner!==false ? '#f0fff4' : '#fff5f5';
+                      const uBorder = found && matchesOwner!==false ? '#9ae6b4' : '#feb2b2';
                       return (
                         <div style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 16px',borderRadius:8,marginBottom:12,background:uBg,border:`1px solid ${uBorder}`}}>
-                          <div style={{fontSize:20}}>{found ? (matchesOwner===false ? '⚠️' : '🔐') : '🔑'}</div>
+                          <div style={{fontSize:22}}>{found?(matchesOwner===false?'⚠️':'🔐'):'⚠️'}</div>
                           <div style={{flex:1}}>
                             <div style={{fontWeight:600,fontSize:13,color:uColor}}>
                               {found
                                 ? matchesOwner===true  ? 'UUID Verified — Ownership Confirmed'
-                                : matchesOwner===false ? 'UUID Found — Different Owner'
-                                : 'UUID Detected — Vault has no user ID to compare'
-                                : 'UUID Not Found'}
+                                : matchesOwner===false ? 'UUID Found — Different Owner Detected'
+                                : 'UUID Detected — Ownership Unverified'
+                                : 'No UUID Found — No PINIT Signature'}
                             </div>
                             {found && (
-                              <div style={{fontSize:12,color:'#4a5568',marginTop:3}}>
-                                {userId?.slice(0,24)}…
-                                {deviceName && <> · {deviceName}</>}
-                                {originalResolution && <> · Originally {originalResolution}</>}
+                              <div style={{fontSize:12,color:'#4a5568',marginTop:4,lineHeight:1.6}}>
+                                User: <code style={{fontFamily:'monospace',fontSize:11}}>{userId?.slice(0,20)}…</code>
+                                {deviceName && <> · Device: {deviceName}</>}
+                                {gps?.available && <> · GPS: <a href={gps.mapsUrl} target="_blank" rel="noreferrer" style={{color:'#3182ce'}}>{gps.coordinates}</a></>}
+                                {originalResolution && <> · Embedded res: {originalResolution}</>}
                                 {rotationDetected > 0 && <> · Recovered after {rotationDetected}° rotation</>}
                               </div>
                             )}
                           </div>
-                          <div>{found && matchesOwner===true ? <UserCheck size={18} color="#38a169"/> : found && matchesOwner===false ? <UserX size={18} color="#e53e3e"/> : <Key size={18} color="#718096"/>}</div>
+                          <div>{found && matchesOwner===true ? <UserCheck size={20} color="#38a169"/> : found && matchesOwner===false ? <UserX size={20} color="#e53e3e"/> : <Key size={20} color="#718096"/>}</div>
                         </div>
                       );
                     })()}
 
-                    {/* Properties grid */}
-                    <div className="data-compare-grid">
-                      <div className="data-col">
-                        <div className="data-col-head original">Original Asset</div>
-                        <div className="data-row"><span>Resolution</span><span>{r.properties.resolution.original}</span></div>
-                        <div className="data-row"><span>File Size</span><span>{r.properties.file_size.original}</span></div>
-                        <div className="data-row"><span>Format</span><span>{r.properties.format.original}</span></div>
-                        <div className="data-row"><span>Aspect Ratio</span><span>{r.properties.aspect_ratio.original}</span></div>
-                        <div className="data-row"><span>Capture Time</span><span>{r.originalCaptureTime ? formatTS(r.originalCaptureTime) : '—'}</span></div>
-                        <div className="data-row"><span>pHash Similarity</span><span>{r.pHashSim !== null ? `${r.pHashSim}%` : '—'}</span></div>
+                    {/* pHash legacy note */}
+                    {comparisonResult.pHashNote && (
+                      <div style={{background:'#ebf8ff',border:'1px solid #bee3f8',borderRadius:8,padding:'10px 14px',marginBottom:12,fontSize:12,color:'#2c5282'}}>
+                        ℹ {comparisonResult.pHashNote}
                       </div>
-                      <div className="data-col">
-                        <div className="data-col-head modified">Submitted Image</div>
-                        <div className="data-row"><span>Resolution</span><span>{r.properties.resolution.uploaded}</span></div>
-                        <div className="data-row"><span>File Size</span><span>{r.properties.file_size.uploaded}</span></div>
-                        <div className="data-row"><span>Format</span><span>{r.properties.format.uploaded}</span></div>
-                        <div className="data-row"><span>Aspect Ratio</span><span>{r.properties.aspect_ratio.uploaded}</span></div>
-                        <div className="data-row"><span>Last Modified</span><span>{r.modifiedFileTime ? formatTS(r.modifiedFileTime) : '—'}</span></div>
-                        <div className="data-row"><span>Editing Tool</span><span>{r.editingTool || '—'}</span></div>
+                    )}
+
+                    {/* Actions moved to bottom of results */}
+                    <div className="sim-bar-wrap">
+                      <div className="sim-bar-track">
+                        <div className={`sim-bar-fill ${comparisonResult.confidence>=80?'high':comparisonResult.confidence>=50?'mid':'low'}`}
+                          style={{width:`${comparisonResult.confidence}%`}}/>
+                      </div>
+                      <span className="sim-bar-label">Overall Similarity Score</span>
+                    </div>
+
+                    {/* Forensic meta strip */}
+                    <div className="forensic-meta-strip">
+                      <div className="forensic-meta-item">
+                        <Clock size={14} className="fmi-icon original"/>
+                        <div><div className="fmi-label">Original Capture Time</div>
+                          <div className="fmi-value">{comparisonResult.originalCaptureTime?formatTS(comparisonResult.originalCaptureTime):'Not recorded'}</div></div>
+                      </div>
+                      <div className="forensic-meta-item">
+                        <Clock size={14} className="fmi-icon modified"/>
+                        <div><div className="fmi-label">File Last Modified</div>
+                          <div className="fmi-value">{comparisonResult.modifiedFileTime?formatTS(comparisonResult.modifiedFileTime):<span className="fmi-na">—</span>}</div></div>
+                      </div>
+                      <div className="forensic-meta-item">
+                        <Wrench size={14} className="fmi-icon tool"/>
+                        <div><div className="fmi-label">Editing Tool</div>
+                          <div className="fmi-value">{comparisonResult.editingTool?<span className="tool-tag">{comparisonResult.editingTool}</span>:<span className="fmi-na">Not detected</span>}</div></div>
+                      </div>
+                      <div className="forensic-meta-item">
+                        <Fingerprint size={14} className="fmi-icon pixel"/>
+                        <div><div className="fmi-label">pHash ({comparisonResult.pHashAlgorithm||'—'})</div>
+                          <div className="fmi-value">{comparisonResult.pHashSim!==null?`${comparisonResult.pHashSim}% similarity`:'No stored fingerprint'}</div></div>
                       </div>
                     </div>
 
-                    {/* Actions */}
+                    {/* Changes + heatmap */}
+                    <div className="changes-section">
+                      <div style={{display:'flex',gap:20,alignItems:'flex-start'}}>
+                        <div style={{flex:1}}>
+                          <h4>Complete Change Analysis — All 6 Signals Combined</h4>
+                          {comparisonResult.changes.length===0
+                            ? <div className="no-changes"><CheckCircle size={16}/> No modifications detected — image matches vault original.</div>
+                            : <ul className="changes-list">
+                                {comparisonResult.changes.map((c,i) => (
+                                  <li key={i} className={`change-item ${c.type}`}>
+                                    <span className="change-dot"/>
+                                    <div>
+                                      {c.category && <span className="change-category">{c.category}</span>}
+                                      <span className="change-text">{c.text}</span>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>}
+                        </div>
+                        {comparisonResult.pixelAnalysis?.hotRegions?.length > 0 && (
+                          <div style={{flexShrink:0}}>
+                            <h4 style={{marginBottom:8,fontSize:13}}>Change Heatmap</h4>
+                            <RegionHeatmap hotRegions={comparisonResult.pixelAnalysis.hotRegions}/>
+                            <div style={{fontSize:10,color:'#a0aec0',marginTop:4}}>vs thumbnail (not full-res)</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Data comparison grid */}
+                    <div className="data-compare-grid">
+                      <div className="data-col">
+                        <div className="data-col-head original">Original Asset</div>
+                        <div className="data-row"><span>Registered</span><span className="ts-value-cell">{formatTS(compareAsset.dateEncrypted||compareAsset.timestamp)}</span></div>
+                        <div className="data-row"><span>Capture Time</span><span className="ts-value-cell">{comparisonResult.originalCaptureTime?formatTS(comparisonResult.originalCaptureTime):'—'}</span></div>
+                        <div className="data-row"><span>Owner</span><span>{compareAsset.ownerName||compareAsset.userId||'—'}</span></div>
+                        <div className="data-row"><span>Resolution</span><span>{compareAsset.resolution||compareAsset.assetResolution||'—'}</span></div>
+                        <div className="data-row"><span>pHash Format</span><span style={{fontSize:11}}>{(compareAsset.visualFingerprint||compareAsset.visual_fingerprint)?((compareAsset.visualFingerprint||compareAsset.visual_fingerprint).length===64?'256-bit (new)':'64-bit (legacy)'):'Not stored'}</span></div>
+                        <div className="data-row"><span>SHA-256</span><span className="mono-small">{(compareAsset.fileHash||compareAsset.file_hash)?(compareAsset.fileHash||compareAsset.file_hash).substring(0,20)+'…':'—'}</span></div>
+                        {(compareAsset.certificateId||compareAsset.certificate_id) && <div className="data-row verified-row"><CheckCircle size={12}/> Certificate Verified</div>}
+                      </div>
+                      <div className="data-col">
+                        <div className="data-col-head modified">Submitted Image</div>
+                        {comparisonResult.modifiedFileTime && <div className="data-row"><span>Last Modified</span><span className="ts-value-cell">{formatTS(comparisonResult.modifiedFileTime)}</span></div>}
+                        <div className="data-row"><span>Compared At</span><span className="ts-value-cell">{formatTS(comparisonResult.timestamp)}</span></div>
+                        <div className="data-row"><span>Editing Tool</span><span>{comparisonResult.editingTool||<span className="fmi-na">Not detected</span>}</span></div>
+                        <div className="data-row"><span>Verdict</span><span style={{fontWeight:700,color:comparisonResult.isTampered?'#c53030':comparisonResult.isModified?'#c05621':'#276749'}}>{comparisonResult.verdict3tier}</span></div>
+                        <div className="data-row"><span>Resolution</span><span>{comparisonResult.uploadedResolution}</span></div>
+                        <div className="data-row"><span>File Size</span><span>{comparisonResult.uploadedSize}</span></div>
+                        {comparisonResult.pixelAnalysis && <div className="data-row"><span>Pixels Changed (vs thumb)</span><span>{comparisonResult.pixelAnalysis.changedPct}%</span></div>}
+                        <div className="data-row"><span>pHash Similarity</span><span>{comparisonResult.pHashSim!==null?`${comparisonResult.pHashSim}%`:'—'}</span></div>
+                        <div className="data-row"><span>Histogram</span><span>{comparisonResult.histSim!==null?`${comparisonResult.histSim}%`:'—'}</span></div>
+                      </div>
+                    </div>
+
+                    {/* Actions — at the very bottom of results */}
                     <div className="report-actions">
                       <button className={`btn-action copy-link ${linkCopied?'copied':''}`} onClick={handleCopyLink}>
-                        <Link size={16}/>{linkCopied ? '✓ Copied!' : 'Copy Verification Link'}
+                        <Link size={16}/>
+                        {linkCopied ? '✓ Link Copied!' : 'Copy Verification Link'}
                       </button>
                       <button className="btn-action download-report" onClick={handleDownload}>
-                        <Download size={16}/> Download Report
+                        <Download size={16}/> Download HTML Report
                       </button>
                     </div>
                   </div>
