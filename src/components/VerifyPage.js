@@ -178,52 +178,72 @@ function VerifyPage() {
     return null;
   };
 
+  // Rotate a canvas by 90/180/270 degrees
+  const rotateCanvasUtil = (src, degrees) => {
+    const c = document.createElement('canvas');
+    const swap = degrees === 90 || degrees === 270;
+    c.width  = swap ? src.height : src.width;
+    c.height = swap ? src.width  : src.height;
+    const ctx = c.getContext('2d');
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate((degrees * Math.PI) / 180);
+    ctx.drawImage(src, -src.width / 2, -src.height / 2);
+    return c;
+  };
+
+  // Try UUID extraction at 0°, 90°, 180°, 270° — handles physically rotated images
+  // Previous version was named "WithRotation" but never actually rotated — fixed here
   const extractUUIDWithRotation = (sourceCanvas) => {
-    const ctx       = sourceCanvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-    const data      = imageData.data;
-    const imgW      = sourceCanvas.width;
-    const TILE      = STEGO_TILE;
+    for (const deg of [0, 90, 180, 270]) {
+      const canvas    = deg === 0 ? sourceCanvas : rotateCanvasUtil(sourceCanvas, deg);
+      const ctx       = canvas.getContext('2d');
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data      = imageData.data;
+      const imgW      = canvas.width;
+      const TILE      = STEGO_TILE;
 
-    const decodeWithOffset = (ox, oy) => {
-      const votes  = new Array(PAYLOAD_BITS).fill(0);
-      const counts = new Array(PAYLOAD_BITS).fill(0);
-      for (let idx = 0; idx < data.length; idx += 4) {
-        const pi = idx / 4;
-        const tx = ((pi % imgW) + ox) % TILE;
-        const ty = (Math.floor(pi / imgW) + oy) % TILE;
-        const p  = ty * TILE + tx;
-        const i0 = (2 * p)     % PAYLOAD_BITS;
-        const i1 = (2 * p + 1) % PAYLOAD_BITS;
-        votes[i0]  += (data[idx]     & 1); counts[i0]++;
-        votes[i1]  += (data[idx + 1] & 1); counts[i1]++;
-      }
-      const bits = votes.map((v, i) => (counts[i] > 0 && v > counts[i] / 2) ? 1 : 0);
-      return parsePayloadBits(bits);
-    };
+      const decodeWithOffset = (ox, oy) => {
+        const votes  = new Array(PAYLOAD_BITS).fill(0);
+        const counts = new Array(PAYLOAD_BITS).fill(0);
+        for (let idx = 0; idx < data.length; idx += 4) {
+          const pi = idx / 4;
+          const tx = ((pi % imgW) + ox) % TILE;
+          const ty = (Math.floor(pi / imgW) + oy) % TILE;
+          const p  = ty * TILE + tx;
+          const i0 = (2 * p)     % PAYLOAD_BITS;
+          const i1 = (2 * p + 1) % PAYLOAD_BITS;
+          votes[i0]  += (data[idx]     & 1); counts[i0]++;
+          votes[i1]  += (data[idx + 1] & 1); counts[i1]++;
+        }
+        const bits = votes.map((v, i) => (counts[i] > 0 && v > counts[i] / 2) ? 1 : 0);
+        return parsePayloadBits(bits);
+      };
 
-    let uid = decodeWithOffset(0, 0);
-    if (uid) return { found: true, userId: uid };
+      // Fast path
+      let uid = decodeWithOffset(0, 0);
+      if (uid) return { found: true, userId: uid };
 
-    for (let oy = 0; oy < TILE; oy++) {
-      for (let ox = 0; ox < TILE; ox++) {
-        if (ox === 0 && oy === 0) continue;
-        uid = decodeWithOffset(ox, oy);
-        if (uid) return { found: true, userId: uid };
-      }
+      // Try all 144 tile offsets (handles any crop position)
+      for (let oy = 0; oy < TILE; oy++)
+        for (let ox = 0; ox < TILE; ox++) {
+          if (ox === 0 && oy === 0) continue;
+          uid = decodeWithOffset(ox, oy);
+          if (uid) return { found: true, userId: uid };
+        }
+
+      // B channel sequential (full IMGCRYPT3 metadata)
+      const bBits = [];
+      for (let idx = 0; idx < data.length; idx += 4) bBits.push(data[idx + 2] & 1);
+      const r2 = extractIMGCRYPT3(bBits);
+      if (r2) return r2;
+
+      // Legacy RGB sequential
+      const rgbBits = [];
+      for (let idx = 0; idx < data.length; idx += 4)
+        rgbBits.push(data[idx] & 1, data[idx+1] & 1, data[idx+2] & 1);
+      const r3 = extractIMGCRYPT3(rgbBits);
+      if (r3) return r3;
     }
-
-    const bBits = [];
-    for (let idx = 0; idx < data.length; idx += 4) bBits.push(data[idx + 2] & 1);
-    const r2 = extractIMGCRYPT3(bBits);
-    if (r2) return r2;
-
-    const rgbBits = [];
-    for (let idx = 0; idx < data.length; idx += 4) {
-      rgbBits.push(data[idx] & 1, data[idx+1] & 1, data[idx+2] & 1);
-    }
-    const r3 = extractIMGCRYPT3(rgbBits);
-    if (r3) return r3;
 
     return { found: false };
   };
