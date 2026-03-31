@@ -1938,7 +1938,12 @@ canvas.toBlob((blob) => {
               blockchain_anchor:  blockchainAnchor || null,
               resolution:         `${canvas.width}x${canvas.height}`,
               capture_timestamp:  captureTimeData.timestamp ? new Date(captureTimeData.timestamp).toISOString() : new Date().toISOString(),
-            };
+              gps_latitude:       gpsData.available ? gpsData.latitude : null,
+              gps_longitude:      gpsData.available ? gpsData.longitude : null,
+              gps_source:         gpsData.source || null,
+              ip_address:         ipInfo.ip || null,
+              device_name:        deviceInfo.deviceName || null,
+			};
             
             console.log('🔵 Sending to vault:', vaultPayload);
             
@@ -2241,9 +2246,24 @@ const saveReportToLocalStorage = (report, userInfo) => {
           ? new Date(rec.capture_timestamp).getTime()
           : (uuidResult.timestamp || null);
         const originalFileSize   = rec.file_size          || (selectedFile.size / 1024).toFixed(2) + ' KB';
-        const originalIpAddress  = uuidResult.ipAddress   || publicIP;
+        const originalIpAddress  = uuidResult.ipAddress   || rec.ip_address  || publicIP;
         const originalIpSource   = uuidResult.ipSource    || 'Embedded';
         const originalDeviceSrc  = uuidResult.deviceSource || 'Embedded';
+        const originalDeviceName2 = uuidResult.deviceName || rec.device_name || getCurrentDeviceName();
+
+        // Resolve GPS: steganography first, then backend, then unavailable
+        const originalGPS = uuidResult.gps?.available
+          ? uuidResult.gps
+          : (rec.gps_latitude && rec.gps_longitude)
+            ? {
+                available:   true,
+                latitude:    parseFloat(rec.gps_latitude),
+                longitude:   parseFloat(rec.gps_longitude),
+                coordinates: `${parseFloat(rec.gps_latitude).toFixed(6)}, ${parseFloat(rec.gps_longitude).toFixed(6)}`,
+                mapsUrl:     `https://www.google.com/maps?q=${rec.gps_latitude},${rec.gps_longitude}`,
+                source:      rec.gps_source || 'Backend'
+              }
+            : { available: false };
 
         report = {
           // ── SECTION A: Original Embedded Record (from backend / extracted) ──
