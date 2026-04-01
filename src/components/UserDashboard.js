@@ -242,13 +242,18 @@ function UserDashboard({ user, onLogout }) {
   };
 
   const handleShareCert = (cert) => {
-    // Create SHORT link with only essential data
+    // Create data matching what PublicVerifyPage expects
     const essentialData = {
-      certificate_id: cert.certificate_id,
-      asset_id: cert.asset_id,
+      v:          1,
+      assetId:    cert.asset_id || cert.assetId,
+      certId:     cert.certificate_id,
       confidence: cert.confidence,
-      status: cert.status,
-      created_at: cert.created_at
+      status:     cert.status,
+      isTampered: false,
+      visualVerdict: cert.status || 'Verified',
+      changes:    [],
+      comparedAt: cert.created_at,
+      owner:      cert.owner_name || cert.ownerName || null,
     };
 
     // Encode only essential data (much shorter URL!)
