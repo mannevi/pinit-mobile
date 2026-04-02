@@ -2273,20 +2273,11 @@ const saveReportToLocalStorage = (report, userInfo) => {
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
       canvas.height = img.height;
-      // BUG FIX (Bug 1): Always use willReadFrequently so the browser doesn't
-      // apply lossy compositing shortcuts. This is critical for LSB steganography —
-      // without it, some browsers silently quantise pixel values when drawing JPEG
-      // sources, which flips LSBs and breaks the CRC-validated tile extraction
-      // (especially fatal on small 25x25 crops where only 4–9 votes back each bit).
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(img, 0, 0);
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-      // BUG FIX (Bug 1 continued): If the source file is JPEG, the drawImage above
-      // has already applied JPEG decompression artifacts to the canvas pixels. We
-      // cannot recover exact LSBs from a JPEG-compressed steganographic image. Warn
-      // early so the failure is visible in the console rather than a silent false-negative.
       const isLossy = selectedFile.type === 'image/jpeg' || selectedFile.type === 'image/jpg'
         || selectedFile.type === 'image/webp';
       if (isLossy) {
@@ -2300,12 +2291,6 @@ const saveReportToLocalStorage = (report, userInfo) => {
 
       const uuidResult = extractUUIDWithRotation(canvas);
 
-      // ── SCENARIO GATE: Backend lookup only if UUID is found ──────────────────
-      // Primary  : look up by the embedded UUID (exact match — always tried first).
-      // Fallback : perceptual hash search — used when the B-channel steganography
-      //            is damaged (heavy re-encoding, social-media recompression) but
-      //            the image is still visually recognisable in the vault.
-      // No UUID  : no backend call at all — only heuristic classification runs.
       let originalRecord = null;
       if (uuidResult.found) {
         try {
