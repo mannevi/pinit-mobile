@@ -1,0 +1,164 @@
+/* ShareModal.css — src/apps/mobile/vault/components/ShareModal.css */
+
+.sm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 46, 0.6);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: sm-fade-in 0.2s ease;
+}
+
+@keyframes sm-fade-in { from { opacity: 0 } to { opacity: 1 } }
+
+.sm-sheet {
+  background: var(--surface, #1e1e2e);
+  border-radius: 24px 24px 0 0;
+  padding: 12px 20px 36px;
+  width: 100%;
+  max-width: 480px;
+  animation: sm-slide-up 0.3s cubic-bezier(.32,1,.28,1);
+}
+
+@keyframes sm-slide-up {
+  from { transform: translateY(100%) }
+  to   { transform: translateY(0)    }
+}
+
+.sm-handle {
+  width: 36px; height: 4px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 4px;
+  margin: 0 auto 20px;
+}
+
+/* Header */
+.sm-header {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; margin-bottom: 20px;
+}
+.sm-title { font-size: 17px; font-weight: 700; color: var(--text-primary, #fff); }
+.sm-sub   { font-size: 12px; color: var(--text-muted, #8888aa); margin-top: 3px;
+            max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-close {
+  background: rgba(255,255,255,0.08); border: none; border-radius: 50%;
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted, #8888aa); cursor: pointer; flex-shrink: 0;
+}
+.sm-close:hover { background: rgba(255,255,255,0.14); }
+
+/* Section label */
+.sm-label {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--text-muted, #8888aa);
+  margin-bottom: 10px;
+}
+
+/* Permission pills */
+.sm-perm-row { display: flex; gap: 8px; margin-bottom: 20px; }
+.sm-perm-pill {
+  flex: 1; padding: 10px 8px; border-radius: 12px;
+  border: 1.5px solid rgba(255,255,255,0.1);
+  background: transparent; cursor: pointer; text-align: center;
+  transition: all 0.18s;
+}
+.sm-perm-pill--on {
+  border-color: var(--accent, #6c5ce7);
+  background: rgba(108, 92, 231, 0.15);
+}
+.sm-perm-pill__label {
+  display: block; font-size: 12px; font-weight: 600;
+  color: var(--text-primary, #fff); margin-bottom: 3px;
+}
+.sm-perm-pill__desc {
+  display: block; font-size: 10px; color: var(--text-muted, #8888aa);
+}
+.sm-perm-pill--on .sm-perm-pill__label { color: var(--accent, #6c5ce7); }
+
+/* Expiry pills */
+.sm-exp-row { display: flex; gap: 6px; margin-bottom: 20px; }
+.sm-exp-pill {
+  flex: 1; padding: 8px 4px; border-radius: 10px;
+  border: 1.5px solid rgba(255,255,255,0.1);
+  background: transparent; cursor: pointer;
+  font-size: 11px; font-weight: 600;
+  color: var(--text-muted, #8888aa); transition: all 0.18s;
+}
+.sm-exp-pill--on {
+  border-color: var(--accent, #6c5ce7);
+  background: rgba(108, 92, 231, 0.15);
+  color: var(--accent, #6c5ce7);
+}
+
+/* Toggle row */
+.sm-toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 20px;
+}
+.sm-toggle-label { font-size: 13px; font-weight: 500; color: var(--text-primary, #fff); }
+.sm-toggle-sub   { font-size: 11px; color: var(--text-muted, #8888aa); margin-top: 2px; }
+
+.sm-toggle {
+  width: 44px; height: 26px; border-radius: 13px;
+  background: rgba(255,255,255,0.1); border: none; cursor: pointer;
+  position: relative; transition: background 0.2s; flex-shrink: 0;
+}
+.sm-toggle--on { background: var(--accent, #6c5ce7); }
+.sm-toggle:disabled { opacity: 0.35; cursor: default; }
+.sm-toggle__thumb {
+  position: absolute; width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; top: 3px; left: 3px;
+  transition: left 0.2s; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.sm-toggle--on .sm-toggle__thumb { left: 21px; }
+
+/* Error */
+.sm-error {
+  font-size: 12px; color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+  border-radius: 8px; padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+/* Generated link box */
+.sm-link-box {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px; padding: 10px 12px;
+  margin-bottom: 14px;
+}
+.sm-link-text {
+  flex: 1; font-size: 11px; font-family: monospace;
+  color: var(--text-muted, #8888aa);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sm-copy-btn {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--accent, #6c5ce7); border: none; border-radius: 8px;
+  color: #fff; padding: 6px 12px; font-size: 12px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+
+/* Buttons */
+.sm-primary-btn {
+  width: 100%; padding: 14px;
+  background: var(--accent, #6c5ce7);
+  border: none; border-radius: 14px; color: #fff;
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: opacity 0.2s; margin-bottom: 10px;
+}
+.sm-primary-btn:disabled { opacity: 0.55; cursor: default; }
+
+.sm-ghost-btn {
+  width: 100%; padding: 13px;
+  background: transparent;
+  border: 1.5px solid rgba(255,255,255,0.1);
+  border-radius: 14px; color: var(--text-muted, #8888aa);
+  font-size: 14px; cursor: pointer;
+}

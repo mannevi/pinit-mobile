@@ -1,0 +1,519 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg:       #0d0f14;
+  --surface:  #161921;
+  --surface2: #1e2230;
+  --border:   #252a3a;
+  --accent:   #5b6af8;
+  --accent2:  #7c3aed;
+  --accent-glow: rgba(91,106,248,.25);
+  --green:    #22c55e;
+  --red:      #ef4444;
+  --gold:     #f59e0b;
+  --blue:     #3b82f6;
+  --purple:   #a855f7;
+  --text:     #eef0f6;
+  --text-2:   #7a8099;
+  --text-3:   #4a5068;
+  --r:        14px;
+  --tr:       180ms cubic-bezier(.4,0,.2,1);
+}
+
+/* ── Screen ─────────────────────────────────────────────────────────────────── */
+.prof-screen {
+  padding: 20px 16px 48px;
+  max-width: 520px; margin: 0 auto;
+  font-family: 'DM Sans', sans-serif; color: var(--text);
+  animation: profFade .22s ease both;
+}
+@keyframes profFade {
+  from { opacity:0; transform:translateY(10px); }
+  to   { opacity:1; transform:translateY(0);    }
+}
+
+/* ── Hero ───────────────────────────────────────────────────────────────────── */
+.prof-hero {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 12px 0 28px; text-align: center;
+}
+
+.prof-avatar {
+  width: 82px; height: 82px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Syne', sans-serif; font-size: 34px; font-weight: 800; color: #fff;
+  box-shadow: 0 8px 28px var(--accent-glow);
+  margin-bottom: 14px;
+}
+
+.prof-name {
+  font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800;
+  color: var(--text); margin-bottom: 4px;
+}
+
+.prof-email { font-size: 14px; color: var(--text-2); }
+
+/* ── Section wrapper ────────────────────────────────────────────────────────── */
+.prof-section { margin-bottom: 20px; }
+
+.prof-section__label {
+  font-size: 11px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .8px;
+  padding: 0 4px; margin-bottom: 8px;
+}
+
+/* ── Card ───────────────────────────────────────────────────────────────────── */
+.prof-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.prof-card__sep {
+  height: 1px; background: var(--border);
+  margin: 0;
+}
+
+/* ── Account info rows ──────────────────────────────────────────────────────── */
+.prof-info-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+}
+
+.prof-info-row__ico {
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface2); color: var(--text-2);
+}
+
+.prof-info-row__body {
+  display: flex; align-items: baseline; justify-content: space-between;
+  flex: 1; min-width: 0; gap: 8px;
+}
+
+.prof-info-row__lbl {
+  font-size: 13px; color: var(--text-2); flex-shrink: 0;
+}
+
+.prof-info-row__val {
+  font-size: 13.5px; color: var(--text); font-weight: 500;
+  text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 65%;
+}
+
+/* UID row with copy button */
+.prof-uid-row {
+  display: flex; align-items: center; gap: 6px;
+  justify-content: flex-end;
+}
+.prof-uid {
+  font-family: monospace; font-size: 11.5px; color: var(--text-2);
+}
+.prof-copy-btn {
+  width: 24px; height: 24px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text-2); cursor: pointer; transition: all var(--tr);
+  -webkit-tap-highlight-color: transparent;
+}
+.prof-copy-btn--done { color: var(--green); border-color: rgba(34,197,94,.4); }
+
+/* ── Security rows ──────────────────────────────────────────────────────────── */
+.prof-sec-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 16px;
+}
+
+.prof-sec-row--btn {
+  width: 100%; background: none; border: none; cursor: pointer;
+  text-align: left; transition: background var(--tr);
+  -webkit-tap-highlight-color: transparent;
+}
+.prof-sec-row--btn:hover { background: rgba(255,255,255,.02); }
+
+.prof-sec-row__left {
+  display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;
+}
+
+.prof-sec-row__ico {
+  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.prof-sec-row__ico--purple { background: rgba(168,85,247,.12); color: var(--purple); border: 1px solid rgba(168,85,247,.25); }
+.prof-sec-row__ico--green  { background: rgba(34,197,94,.12);  color: var(--green);  border: 1px solid rgba(34,197,94,.25);  }
+.prof-sec-row__ico--dim    { background: var(--surface2);       color: var(--text-3); border: 1px solid var(--border);         }
+
+.prof-sec-row__label {
+  font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.2;
+}
+.prof-sec-row__sub {
+  font-size: 12px; color: var(--text-2); margin-top: 2px; line-height: 1.3;
+}
+.prof-sec-row__arr { color: var(--text-3); flex-shrink: 0; }
+
+/* Status message (biometric feedback) */
+.prof-status-msg {
+  font-size: 11.5px; color: var(--green); margin-top: 3px;
+}
+
+/* ── Biometric toggle buttons ───────────────────────────────────────────────── */
+.prof-toggle {
+  padding: 6px 14px; border-radius: 20px;
+  font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 700;
+  cursor: pointer; transition: all var(--tr); border: 1.5px solid;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.prof-toggle--on {
+  background: rgba(91,106,248,.12);
+  border-color: rgba(91,106,248,.4);
+  color: #818cf8;
+}
+.prof-toggle--on:hover  { background: rgba(91,106,248,.22); }
+.prof-toggle--off {
+  background: rgba(239,68,68,.1);
+  border-color: rgba(239,68,68,.35);
+  color: #f87171;
+}
+.prof-toggle--off:hover { background: rgba(239,68,68,.2); }
+.prof-toggle:disabled   { opacity: .5; cursor: not-allowed; }
+
+/* ── Usage stats grid ───────────────────────────────────────────────────────── */
+.prof-stats-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.prof-stat {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 16px 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); text-align: center;
+  transition: border-color var(--tr);
+}
+
+.prof-stat--blue   { border-top: 2px solid rgba(59,130,246,.5); }
+.prof-stat--purple { border-top: 2px solid rgba(168,85,247,.5); }
+.prof-stat--gold   { border-top: 2px solid rgba(245,158,11,.5); }
+
+.prof-stat__icon { font-size: 20px; margin-bottom: 8px; line-height: 1; }
+.prof-stat__val  {
+  font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800;
+  color: var(--text); line-height: 1; margin-bottom: 4px;
+}
+.prof-stat__lbl  { font-size: 11px; color: var(--text-2); font-weight: 500; }
+
+/* ── Logout button ──────────────────────────────────────────────────────────── */
+.prof-logout-btn {
+  width: 100%; padding: 16px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(239,68,68,.08);
+  border: 1.5px solid rgba(239,68,68,.3);
+  border-radius: var(--r);
+  font-family: 'DM Sans', sans-serif; font-size: 16px; font-weight: 700;
+  color: #f87171; cursor: pointer;
+  transition: all var(--tr);
+  -webkit-tap-highlight-color: transparent;
+  margin-bottom: 16px;
+}
+.prof-logout-btn:hover, .prof-logout-btn:active {
+  background: rgba(239,68,68,.15);
+  border-color: rgba(239,68,68,.5);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────────── */
+.prof-footer {
+  text-align: center; font-size: 12px; color: var(--text-3);
+}
+
+/* ── Teal icon variant (Contact Support) ────────────────────────────────────── */
+.prof-sec-row__ico--teal {
+  background: rgba(20, 184, 166, .12);
+  color: #2dd4bf;
+  border: 1px solid rgba(20, 184, 166, .28);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CONTACT SUPPORT SHEET
+   All cs-* classes live here so ContactSupport.jsx stays style-free.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Backdrop ───────────────────────────────────────────────────────────────── */
+.cs-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0, 0, 0, .72);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  animation: csOverlayIn .2s ease both;
+}
+@keyframes csOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Sheet ──────────────────────────────────────────────────────────────────── */
+.cs-sheet {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  z-index: 201;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 24px 24px 0 0;
+  padding: 12px 24px max(32px, env(safe-area-inset-bottom));
+  max-width: 520px; margin: 0 auto;
+  display: flex; flex-direction: column; align-items: center;
+  animation: csSheetUp .3s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+@keyframes csSheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0);    }
+}
+
+/* ── Handle bar ─────────────────────────────────────────────────────────────── */
+.cs-handle {
+  width: 40px; height: 4px; border-radius: 9999px;
+  background: var(--border);
+  margin-bottom: 20px; flex-shrink: 0;
+}
+
+/* ── Close button ───────────────────────────────────────────────────────────── */
+.cs-close {
+  position: absolute; top: 18px; right: 18px;
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text-2); cursor: pointer;
+  transition: all var(--tr);
+  -webkit-tap-highlight-color: transparent;
+}
+.cs-close:hover { color: var(--text); background: var(--border); }
+
+/* ── Icon ───────────────────────────────────────────────────────────────────── */
+.cs-icon-wrap { margin-bottom: 16px; }
+
+.cs-icon {
+  width: 68px; height: 68px; border-radius: 20px;
+  background: rgba(20, 184, 166, .1);
+  border: 1.5px solid rgba(20, 184, 166, .25);
+  display: flex; align-items: center; justify-content: center;
+  color: #2dd4bf;
+  box-shadow: 0 6px 24px rgba(20, 184, 166, .12);
+}
+
+/* ── Title ──────────────────────────────────────────────────────────────────── */
+.cs-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 22px; font-weight: 800;
+  color: var(--text);
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+/* ── Description ────────────────────────────────────────────────────────────── */
+.cs-desc {
+  font-size: 14px; color: var(--text-2);
+  text-align: center; line-height: 1.6;
+  margin-bottom: 24px;
+  white-space: pre-line;       /* honours the \n in the JSX string */
+  max-width: 300px;
+}
+
+/* ── Email card ─────────────────────────────────────────────────────────────── */
+.cs-email-card {
+  width: 100%;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-bottom: 8px;
+}
+
+.cs-email-card__ico {
+  width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(91, 106, 248, .12);
+  border: 1px solid rgba(91, 106, 248, .25);
+  color: #818cf8;
+}
+
+.cs-email-card__body {
+  display: flex; flex-direction: column; flex: 1; min-width: 0;
+}
+.cs-email-card__lbl {
+  font-size: 11px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .5px;
+  font-weight: 600; margin-bottom: 3px;
+}
+.cs-email-card__val {
+  font-size: 13.5px; color: var(--text); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Copy button inside email card ─────────────────────────────────────────── */
+.cs-copy-btn {
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text-2); cursor: pointer;
+  transition: all var(--tr);
+  -webkit-tap-highlight-color: transparent;
+}
+.cs-copy-btn:hover  { border-color: var(--text-3); color: var(--text); }
+.cs-copy-btn--done  { color: var(--green); border-color: rgba(34, 197, 94, .4); }
+
+/* ── Copied feedback message ────────────────────────────────────────────────── */
+.cs-copied-msg {
+  width: 100%; text-align: center;
+  font-size: 12px; color: var(--green);
+  margin-bottom: 4px;
+  animation: csOverlayIn .15s ease both;
+}
+
+/* ── Primary CTA — Email Support (old single button — replaced by picker) ─── */
+
+/* ── "Open with" label above the picker ────────────────────────────────────── */
+.cs-open-with-label {
+  width: 100%;
+  font-size: 11px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .8px;
+  margin: 20px 0 10px;
+  text-align: left;
+}
+
+/* ── Two-button picker ──────────────────────────────────────────────────────── */
+.cs-picker {
+  width: 100%;
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+.cs-picker-btn {
+  width: 100%;
+  display: flex; align-items: center; gap: 14px;
+  padding: 15px 16px;
+  border-radius: var(--r);
+  border: 1.5px solid var(--border);
+  background: var(--surface2);
+  cursor: pointer;
+  transition: all var(--tr);
+  -webkit-tap-highlight-color: transparent;
+}
+.cs-picker-btn:hover  { border-color: var(--text-3); background: var(--surface); }
+.cs-picker-btn:active { transform: scale(.98); }
+
+/* Gmail button — red-tinted border on hover */
+.cs-picker-btn--gmail:hover { border-color: rgba(234, 67, 53, .5); }
+
+/* Mail app button — accent-tinted border on hover */
+.cs-picker-btn--mail:hover  { border-color: rgba(91, 106, 248, .5); }
+
+.cs-picker-btn__ico {
+  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Gmail icon container */
+.cs-picker-btn--gmail .cs-picker-btn__ico {
+  background: rgba(234, 67, 53, .1);
+  border: 1px solid rgba(234, 67, 53, .25);
+}
+
+/* Other mail icon container */
+.cs-picker-btn--mail .cs-picker-btn__ico {
+  background: rgba(91, 106, 248, .1);
+  border: 1px solid rgba(91, 106, 248, .25);
+  color: #818cf8;
+}
+
+.cs-picker-btn__label {
+  flex: 1;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px; font-weight: 600;
+  color: var(--text);
+  text-align: left;
+}
+
+.cs-picker-btn__ext {
+  color: var(--text-3); flex-shrink: 0;
+}
+
+/* ── Secondary dismiss link ─────────────────────────────────────────────────── */
+.cs-dismiss-btn {
+  margin-top: 12px;
+  background: none; border: none;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px; color: var(--text-3);
+  cursor: pointer; padding: 8px;
+  transition: color var(--tr);
+  -webkit-tap-highlight-color: transparent;
+}
+.cs-dismiss-btn:hover { color: var(--text-2); }
+
+/* ── Wider screens: sheet becomes a centred dialog ──────────────────────────── */
+@media (min-width: 520px) {
+  .cs-sheet {
+    left: 50%; right: auto;
+    transform: translateX(-50%);
+    width: 100%; max-width: 480px;
+    border-radius: 24px;
+    bottom: 40px;
+    padding-bottom: 28px;
+  }
+}
+/* ── New additions ────────────────────────────────────────────────────────── */
+
+.prof-avatar-wrap {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 14px;
+}
+.prof-avatar--img {
+  width: 82px; height: 82px; border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 8px 28px var(--accent-glow);
+}
+.prof-avatar-edit {
+  position: absolute;
+  bottom: 2px; right: 2px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.prof-name-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px;
+}
+.prof-name-edit-btn {
+  border: none; background: none; cursor: pointer;
+  color: var(--text-3); padding: 2px;
+  display: flex; align-items: center;
+  transition: color var(--tr);
+}
+.prof-name-edit-btn:hover { color: var(--accent); }
+.prof-name-edit-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px;
+}
+.prof-name-input {
+  background: var(--surface2);
+  border: 1.5px solid var(--accent);
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-family: 'Syne', sans-serif;
+  font-size: 18px; font-weight: 800;
+  color: var(--text);
+  outline: none;
+  width: 160px;
+  text-align: center;
+}
+.prof-name-save {
+  background: var(--accent);
+  color: white; border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px; font-weight: 700;
+  cursor: pointer;
+}
