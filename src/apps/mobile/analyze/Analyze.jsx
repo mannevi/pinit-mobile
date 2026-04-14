@@ -2063,6 +2063,12 @@ try {
       setTorchAvail(false);
     }
 
+    // APK fallback — Android WebView getCapabilities() rarely returns zoom
+    // Force-enable digital zoom via CSS scale when hardware zoom unavailable
+    if (window.Capacitor?.isNativePlatform?.()) {
+      setZoomRange(prev => prev || { min: 1, max: 5 });
+    }
+
     setTorchOn(false);
     setZoomLevel(1);
 
@@ -2095,7 +2101,10 @@ try {
     setTimerCount(null);
     // Stop stream
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    if (videoRef.current)  videoRef.current.srcObject = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+      videoRef.current.style.transform = ''; // reset digital zoom
+    }
     imageCaptureRef.current = null;
     setCameraActive(false);
     setTorchOn(false);
@@ -2182,13 +2191,25 @@ try {
 
   // ── Zoom buttons ──────────────────────────────────────────────────────────
   const applyZoom = async (level) => {
-    if (!zoomRange) return;
-    const clamped = Math.min(zoomRange.max, Math.max(zoomRange.min, level));
+    const range = zoomRange || { min: 1, max: 5 };
+    const clamped = Math.min(range.max, Math.max(range.min, level));
     setZoomLevel(clamped);
-    try {
-      const track = streamRef.current?.getVideoTracks()[0];
-      if (track) await track.applyConstraints({ advanced: [{ zoom: clamped }] });
-    } catch {}
+
+    // Try hardware zoom first
+    const track = streamRef.current?.getVideoTracks()[0];
+    let hardwareZoomApplied = false;
+    if (track) {
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: clamped }] });
+        hardwareZoomApplied = true;
+      } catch { /* not supported — fall through to CSS */ }
+    }
+
+    // CSS digital zoom fallback — works in all Android WebViews
+    if (!hardwareZoomApplied && videoRef.current) {
+      videoRef.current.style.transform = `scale(${clamped})`;
+      videoRef.current.style.transformOrigin = 'center center';
+    }
   };
 
   // ── The actual frame-grab + embed trigger (unchanged logic, just extracted) ─

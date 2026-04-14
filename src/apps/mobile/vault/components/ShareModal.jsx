@@ -105,8 +105,18 @@ export default function ShareModal({ img, onClose }) {
     }
   };
 
+  
   const handleNativeShare = async () => {
-    if (navigator.share) {
+  try {
+    if (window.Capacitor?.isNativePlatform?.()) {
+      const { Share } = await import('@capacitor/share');
+      await Share.share({
+        title      : 'Shared via PINIT',
+        text       : `I've shared a verified image with you via PINIT.`,
+        url        : generatedUrl,
+        dialogTitle: 'Share via',
+      });
+    } else if (navigator.share) {
       await navigator.share({
         title: 'Shared via PINIT',
         text : `I've shared a verified image with you via PINIT.`,
@@ -115,6 +125,10 @@ export default function ShareModal({ img, onClose }) {
     } else {
       handleCopy();
     }
+  } catch (e) {
+    // user cancelled — don't show error
+    if (!String(e).toLowerCase().includes('cancel')) handleCopy();
+  }
   };
 
   return (

@@ -205,17 +205,33 @@ function Home({ user, onLogout }) {
       localStorage.setItem(`pinit_cert_${cert.certificate_id}`, JSON.stringify(certRecord));
     } catch (e) { console.warn('Local cert cache failed (non-critical):', e); }
 
-    if (navigator.share) {
-      navigator.share({
-        title : 'PINIT Ownership Certificate',
-        text  : `Certificate: ${cert.certificate_id}`,
-        url,
-      }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(url)
-        .then(() => alert(`✅ Link copied!\n${url}`));
+    
+ try {
+  if (window.Capacitor?.isNativePlatform?.()) {
+    const { Share } = await import('@capacitor/share');
+    await Share.share({
+      title      : 'PINIT Ownership Certificate',
+      text       : `Certificate: ${cert.certificate_id}`,
+      url,
+      dialogTitle: 'Share via',
+    });
+  } else if (navigator.share) {
+    await navigator.share({
+      title : 'PINIT Ownership Certificate',
+      text  : `Certificate: ${cert.certificate_id}`,
+      url,
+    });
+  } else {
+    navigator.clipboard.writeText(url)
+      .then(() => alert(`✅ Link copied!\n${url}`));
+  }
+    } catch (e) {
+  if (!String(e).toLowerCase().includes('cancel')) {
+    navigator.clipboard.writeText(url)
+      .then(() => alert(`✅ Link copied!\n${url}`));
     }
-  };
+  }
+  }; // ← closes shareCert
 
   // ── Profile actions ───────────────────────────────────────────────────────
   const changePassword = async () => {

@@ -371,7 +371,7 @@ function SharedImagePage() {
               {asset.thumbnail_url ? (
                 <>
                   <img
-                    src={asset.full_image_url || asset.thumbnail_url}
+                    src={asset.share_image_url || asset.full_image_url || asset.thumbnail_url}
                     alt={asset.file_name}
                     style={showFull ? S.img : S.imgBlur}
                   />
@@ -436,7 +436,7 @@ function SharedImagePage() {
               {permission === 'view_and_download' && !requireApproval ? (
                 <button
                   style={{ ...S.outlineBtn, opacity: dlBusy ? 0.6 : 1 }}
-                  onClick={() => handleDirectDownload(asset.full_image_url || asset.thumbnail_url, asset.file_name)}
+                  onClick={() => handleDirectDownload(asset.share_image_url || asset.full_image_url || asset.thumbnail_url, asset.file_name)}
                   disabled={dlBusy}
                 >
                   {dlBusy ? 'Downloading…' : '⬇ Download Image'}
