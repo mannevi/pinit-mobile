@@ -205,7 +205,7 @@ function RequestModal({ token, ownerEmail, onClose }) {
       setSuccess(true);
     } catch (e) {
       if (ownerEmail) {
-        setSuccess(true);
+        setSuccess(true); // show success with mailto fallback
       } else {
         setError(e.message + ' — Please contact the owner directly.');
       }
@@ -272,24 +272,28 @@ function RequestModal({ token, ownerEmail, onClose }) {
 function SharedImagePage() {
   const { token } = useParams();
 
-  const [pageStatus,   setPageStatus]   = useState('loading');
-  const [linkData,     setLinkData]     = useState(null);
-  const [showFull,     setShowFull]     = useState(false);
-  const [showReqModal, setShowReqModal] = useState(false);
-  const [dlBusy,       setDlBusy]       = useState(false);
+  const [pageStatus,  setPageStatus]  = useState('loading');
+  const [linkData,    setLinkData]    = useState(null);
+  const [showFull,    setShowFull]    = useState(false);
+  const [showReqModal,setShowReqModal]= useState(false);
+  const [dlBusy,      setDlBusy]      = useState(false);
 
   useEffect(() => {
     if (!token) { setPageStatus('not_found'); return; }
     fetchShareLink(token).then(data => {
       if (!data || data.status === 'not_found') { setPageStatus('not_found'); return; }
       if (data.status === 'error')              { setPageStatus('error');     return; }
+      // REPLACE WITH:
+      // Check localStorage for full image saved at share-creation time
       const localImg = localStorage.getItem(`pinit_share_${token}`);
       if (localImg && data.asset) data.asset.full_image_url = localImg;
       setLinkData(data);
-      setPageStatus(data.status);
+      setPageStatus(data.status); // 'active' | 'expired' | 'revoked'
     }).catch(() => setPageStatus('error'));
   }, [token]);
 
+  // REPLACE WITH:
+      // FIND (the whole function, lines 276-288):
   const handleDirectDownload = async (url, fileName) => {
     setDlBusy(true);
     try {
@@ -310,8 +314,8 @@ function SharedImagePage() {
     finally { setDlBusy(false); }
   };
 
-  const asset           = linkData?.asset          || {};
-  const permission      = linkData?.permission     || 'view_only';
+  const asset      = linkData?.asset      || {};
+  const permission = linkData?.permission || 'view_only';
   const requireApproval = linkData?.require_approval !== false;
 
   // Time remaining
@@ -324,41 +328,6 @@ function SharedImagePage() {
       timeRemaining = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
     }
   }
-
-  // ─── Button logic ──────────────────────────────────────────────────────────
-  // view_only             → View Image + Request Download Access
-  // view_and_download
-  //   require_approval=false → View Image + Download Image (direct)
-  //   require_approval=true  → View Image + Request Download Access
-  const renderActionButton = () => {
-    if (permission === 'view_only') {
-      return (
-        <button style={S.outlineBtn} onClick={() => setShowReqModal(true)}>
-          📩 Request Download Access
-        </button>
-      );
-    }
-    if (permission === 'view_and_download' && !requireApproval) {
-      return (
-        <button
-          style={{ ...S.outlineBtn, opacity: dlBusy ? 0.6 : 1 }}
-          onClick={() => handleDirectDownload(
-            asset.share_image_url || asset.full_image_url || asset.thumbnail_url,
-            asset.file_name
-          )}
-          disabled={dlBusy}
-        >
-          {dlBusy ? 'Downloading…' : '⬇ Download Image'}
-        </button>
-      );
-    }
-    // view_and_download with require_approval=true
-    return (
-      <button style={S.outlineBtn} onClick={() => setShowReqModal(true)}>
-        📩 Request Download Access
-      </button>
-    );
-  };
 
   return (
     <>
@@ -405,11 +374,6 @@ function SharedImagePage() {
                     src={asset.share_image_url || asset.full_image_url || asset.thumbnail_url}
                     alt={asset.file_name}
                     style={showFull ? S.img : S.imgBlur}
-                    onError={(e) => {
-                      if (e.target.src !== asset.thumbnail_url) {
-                        e.target.src = asset.thumbnail_url;
-                      }
-                    }}
                   />
                   {!showFull && (
                     <div style={S.blurOverlay}>
@@ -469,7 +433,19 @@ function SharedImagePage() {
                 {showFull ? '🙈 Hide Image' : '👁 View Image'}
               </button>
 
-              {renderActionButton()}
+              {permission === 'view_and_download' && !requireApproval ? (
+                <button
+                  style={{ ...S.outlineBtn, opacity: dlBusy ? 0.6 : 1 }}
+                  onClick={() => handleDirectDownload(asset.share_image_url || asset.full_image_url || asset.thumbnail_url, asset.file_name)}
+                  disabled={dlBusy}
+                >
+                  {dlBusy ? 'Downloading…' : '⬇ Download Image'}
+                </button>
+              ) : (
+                <button style={S.outlineBtn} onClick={() => setShowReqModal(true)}>
+                  📩 Request Download Access
+                </button>
+              )}
 
               <p style={S.watermark}>
                 This image is UUID-embedded and protected by PINIT.<br />
